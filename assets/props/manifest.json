@@ -201,9 +201,9 @@
       ]
     },
     {
-      "id": "grate-square",
+      "id": "sewer-grate-square",
       "name": "Sewer Grate Square",
-      "src": "grate-square.svg",
+      "src": "sewer-grate-square.svg",
       "gridW": 0.9,
       "gridH": 0.9,
       "category": "floor",
@@ -214,13 +214,14 @@
         "details",
         "floor",
         "drains",
-        "grates"
+        "grates",
+        "metal"
       ]
     },
     {
-      "id": "grate-round",
+      "id": "sewer-grate-round",
       "name": "Sewer Grate Round",
-      "src": "grate-round.svg",
+      "src": "sewer-grate-round.svg",
       "gridW": 0.9,
       "gridH": 0.9,
       "category": "floor",
@@ -231,7 +232,8 @@
         "details",
         "floor",
         "drains",
-        "grates"
+        "grates",
+        "metal"
       ]
     },
     {
@@ -247,16 +249,16 @@
       ]
     },
     {
-      "id": "heavy-crate",
-      "name": "Heavy Crate",
-      "src": "heavy-crate.svg",
+      "id": "metal-crate",
+      "name": "Metal Crate",
+      "src": "metal-crate.svg",
       "gridW": 0.8,
       "gridH": 0.8,
       "tags": [
         "interior",
         "storage",
         "crates",
-        "heavy"
+        "metal"
       ]
     },
     {

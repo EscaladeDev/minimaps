@@ -1,6 +1,8 @@
 import { drawGrid } from "./grid.js"
 
 import { contoursFromAlpha } from "../utils/marching_squares.js"
+import { getPathRenderGeometry, normalizePathShapeSettings } from "../utils/path-styles.js"
+import { buildWaterFillWorld, buildWaterEdgesWorld } from "./water-style.js"
 
 function ensureCanvas(holder, key, w, h) {
   if (!holder[key]) holder[key] = document.createElement("canvas")
@@ -69,7 +71,7 @@ function getWaterDecorCache(rawWaterMaskCanvas, interiorMaskCanvas, dungeon, bou
     __waterDecorCache.edgeKey = ""
   }
 
-  const fillKey = [sizeKey, water.enabled !== false, water.color || "#6bb8ff", Number(water.opacity || 0.4)].join("|")
+  const fillKey = [sizeKey, water.enabled !== false, water.color || "#6bb8ff", Number(water.opacity || 0.4), Number(water.centerGlow || 0.72), Number(water.depthStrength || 0.7)].join("|")
   if (__waterDecorCache.fillKey !== fillKey) {
     __waterDecorCache.fillCanvas = buildWaterFillWorld(__waterDecorCache.visibleMaskCanvas, dungeon)
     __waterDecorCache.fillKey = fillKey
@@ -80,11 +82,18 @@ function getWaterDecorCache(rawWaterMaskCanvas, interiorMaskCanvas, dungeon, bou
     water.enabled !== false,
     water.outlineEnabled !== false,
     water.ripplesEnabled !== false,
+    water.color || '#6bb8ff',
     water.outlineColor || '#1f2933',
     Number(water.outlinePx || 10),
     water.rippleColor || water.outlineColor || '#1f2933',
     Number(water.ripplePx || 7),
     Number(water.rippleSpacing || 110),
+    Number(water.glowStrength || 0.9),
+    Number(water.depthStrength || 0.7),
+    Number(water.sparkleAmount || 0.45),
+    Number(water.centerGlow || 0.72),
+    Number(water.seamBright || 0.95),
+    Number(water.cellSize || 1.15),
     Number(water.rippleInsetMin || 18),
     Number(water.rippleInsetMax || 54),
     Number(water.rippleLengthMin || 28),
@@ -112,7 +121,15 @@ function worldBoundsFromDungeon(dungeon) {
     if (p.y > maxy) maxy = p.y
   }
   for (const s of dungeon.spaces) for (const p of (s.polygon || [])) eat(p)
-  for (const pth of dungeon.paths) for (const p of (pth.points || [])) eat(p)
+  for (const pth of dungeon.paths) {
+    const width = Math.max(2, Number(pth?.width || dungeon.style?.corridorWidth || 48))
+    const geometry = getPathRenderGeometry(pth?.points || [], normalizePathShapeSettings(pth || {}, dungeon.style || {}), { width, seed: pth?.id || pth?.seq || 0 })
+    const pad = width * 0.5
+    for (const p of (geometry.points || [])) {
+      eat({ x: p.x - pad, y: p.y - pad })
+      eat({ x: p.x + pad, y: p.y + pad })
+    }
+  }
   for (const sh of dungeon.shapes) for (const p of (sh._poly || [])) eat(p)
   for (const wp of ((dungeon.water && dungeon.water.paths) || [])) for (const p of (wp.points || [])) eat(p)
   if (!isFinite(minx)) return null
@@ -153,7 +170,10 @@ function drawWorldMask(maskCtx, dungeon, bounds, ppu) {
     const pts = path && path.points
     if (!pts || pts.length < 2) continue
     const seq = Number.isFinite(Number(path.seq)) ? Number(path.seq) : (fallbackSeq++)
-    ops.push({ seq, mode: (path.mode || "add"), kind: "strokePath", width: Math.max(2, Number(path.width || dungeon.style?.corridorWidth || 48)), points: pts })
+    const width = Math.max(2, Number(path.width || dungeon.style?.corridorWidth || 48))
+    const geometry = getPathRenderGeometry(pts, normalizePathShapeSettings(path, dungeon.style || {}), { width, seed: path.id || seq })
+    if (!geometry?.points || geometry.points.length < 2) continue
+    ops.push({ seq, mode: (path.mode || "add"), kind: geometry.kind === "polygon" ? "fillPoly" : "strokePath", width, points: geometry.points, poly: geometry.points })
   }
 
   ops.sort((a,b) => a.seq - b.seq)
@@ -224,231 +244,8 @@ function drawWaterMask(maskCtx, dungeon, bounds, ppu) {
   maskCtx.globalCompositeOperation = "source-over"
 }
 
-function buildWaterFillWorld(visibleWaterMaskCanvas, dungeon) {
-  const water = dungeon.style?.water || {}
-  if (water.enabled === false || !visibleWaterMaskCanvas) return null
-  const w = visibleWaterMaskCanvas.width, h = visibleWaterMaskCanvas.height
-  const out = document.createElement("canvas")
-  out.width = w; out.height = h
-  const octx = out.getContext("2d")
-  octx.clearRect(0,0,w,h)
-  octx.drawImage(visibleWaterMaskCanvas, 0, 0)
-  octx.globalCompositeOperation = "source-in"
-  octx.globalAlpha = Math.max(0.05, Math.min(0.95, Number(water.opacity || 0.4)))
-  octx.fillStyle = water.color || "#6bb8ff"
-  octx.fillRect(0,0,w,h)
-  octx.globalAlpha = 1
-  octx.globalCompositeOperation = "source-over"
-  return out
-}
-
-function makeRng(seed0){
-  let seed = (seed0 >>> 0) || 0x9e3779b9
-  return function(){
-    seed ^= seed << 13; seed >>>= 0
-    seed ^= seed >>> 17; seed >>>= 0
-    seed ^= seed << 5; seed >>>= 0
-    return (seed & 0x7fffffff) / 0x80000000
-  }
-}
-
-function smoothClosed(points, iterations=2){
-  let pts = Array.isArray(points) ? points.slice() : []
-  for (let it=0; it<iterations; it++){
-    const next = []
-    const n = pts.length
-    if (n < 3) return pts
-    for (let i=0;i<n;i++){
-      const p0 = pts[i]
-      const p1 = pts[(i+1)%n]
-      next.push({ x: p0.x*0.75 + p1.x*0.25, y: p0.y*0.75 + p1.y*0.25 })
-      next.push({ x: p0.x*0.25 + p1.x*0.75, y: p0.y*0.25 + p1.y*0.75 })
-    }
-    pts = next
-  }
-  return pts
-}
-
 function buildWaterEdgesFallbackFromPaths(rawWaterMaskCanvas, dungeon){
   return buildWaterEdgesWorld(rawWaterMaskCanvas, dungeon)
-}
-
-function makeDownscaledAlpha(rawWaterMaskCanvas, targetLongest = 900){
-  const srcW = rawWaterMaskCanvas.width, srcH = rawWaterMaskCanvas.height
-  const longest = Math.max(srcW, srcH)
-  const scale = longest > targetLongest ? (targetLongest / longest) : 1
-  const dw = Math.max(1, Math.round(srcW * scale))
-  const dh = Math.max(1, Math.round(srcH * scale))
-  const small = document.createElement('canvas')
-  small.width = dw; small.height = dh
-  const sctx = small.getContext('2d', { willReadFrequently: true })
-  sctx.imageSmoothingEnabled = true
-  sctx.drawImage(rawWaterMaskCanvas, 0, 0, dw, dh)
-  const img = sctx.getImageData(0,0,dw,dh)
-  const alpha = img.data
-  const aAt = (x,y) => {
-    const ix = Math.max(0, Math.min(dw-1, Math.round(x)))
-    const iy = Math.max(0, Math.min(dh-1, Math.round(y)))
-    return alpha[(iy*dw + ix)*4 + 3]
-  }
-  return { small, dw, dh, scaleX: srcW / dw, scaleY: srcH / dh, alpha, aAt }
-}
-
-function drawMaskOutline(rawWaterMaskCanvas, outCtx, outlinePx, color){
-  const w = rawWaterMaskCanvas.width, h = rawWaterMaskCanvas.height
-  const ring = document.createElement('canvas')
-  ring.width = w; ring.height = h
-  const rctx = ring.getContext('2d')
-  rctx.imageSmoothingEnabled = true
-  const rad = Math.max(2, outlinePx * 0.55)
-  const steps = Math.max(16, Math.ceil(rad * 7))
-  for (let i=0;i<steps;i++){
-    const a = (i / steps) * Math.PI * 2
-    const ox = Math.cos(a) * rad
-    const oy = Math.sin(a) * rad
-    rctx.drawImage(rawWaterMaskCanvas, ox, oy)
-  }
-  rctx.globalCompositeOperation = 'destination-out'
-  rctx.drawImage(rawWaterMaskCanvas, 0, 0)
-  rctx.globalCompositeOperation = 'source-in'
-  rctx.fillStyle = color
-  rctx.fillRect(0,0,w,h)
-  rctx.globalCompositeOperation = 'source-over'
-  outCtx.drawImage(ring, 0, 0)
-}
-
-function buildWaterEdgesWorld(rawWaterMaskCanvas, dungeon){
-  const water = dungeon.style?.water || {}
-  if (water.enabled === false || (water.outlineEnabled === false && water.ripplesEnabled === false)) return null
-  const srcW = rawWaterMaskCanvas.width, srcH = rawWaterMaskCanvas.height
-  if (srcW < 2 || srcH < 2) return null
-
-  const edge = document.createElement('canvas')
-  edge.width = srcW; edge.height = srcH
-  const ectx = edge.getContext('2d')
-  ectx.lineCap = 'round'
-  ectx.lineJoin = 'round'
-
-  const outlinePx = Math.max(8, Number(water.outlinePx || 12))
-  const ripplePx = Math.max(5, Number(water.ripplePx || 8))
-  const spacingBase = Math.max(95, Number(water.rippleSpacing || 145))
-  const insetMin = Math.max(18, Number(water.rippleInsetMin || 22))
-  const insetMax = Math.max(insetMin + 10, Number(water.rippleInsetMax || 58))
-  const lenMin = Math.max(22, Number(water.rippleLengthMin || 32))
-  const lenMax = Math.max(lenMin + 10, Number(water.rippleLengthMax || 76))
-  const outlineColor = water.outlineColor || '#1f2933'
-  const rippleColor = water.rippleColor || outlineColor
-
-  if (water.outlineEnabled !== false) {
-    // Strong shoreline outline that always exists, independent of contour success.
-    drawMaskOutline(rawWaterMaskCanvas, ectx, outlinePx, outlineColor)
-  }
-
-  if (water.ripplesEnabled === false) return edge
-
-  // Downscaled alpha field for fast, stable ripple placement.
-  const ds = makeDownscaledAlpha(rawWaterMaskCanvas, 900)
-  const { dw, dh, scaleX, scaleY, aAt } = ds
-
-  const rippleCanvas = document.createElement('canvas')
-  rippleCanvas.width = srcW; rippleCanvas.height = srcH
-  const rctx = rippleCanvas.getContext('2d')
-  rctx.strokeStyle = rippleColor
-  rctx.lineWidth = ripplePx
-  rctx.lineCap = 'round'
-  rctx.lineJoin = 'round'
-
-  const inside = (x,y) => aAt(x,y) > 10
-  const edgeDistanceInfo = (x,y) => {
-    if (!inside(x,y)) return null
-    const maxR = Math.max(3, Math.ceil(insetMax / Math.max(scaleX, scaleY)) + 3)
-    let best = Infinity, bx = 0, by = 0
-    const dirs = 24
-    for (let i=0;i<dirs;i++){
-      const a = (i / dirs) * Math.PI * 2
-      const dx = Math.cos(a), dy = Math.sin(a)
-      for (let r=1; r<=maxR; r++){
-        const sx = x + dx * r, sy = y + dy * r
-        if (!inside(sx, sy)){
-          if (r < best){ best = r; bx = dx; by = dy }
-          break
-        }
-      }
-    }
-    if (!Number.isFinite(best)) return null
-    return { distPx: best * Math.max(scaleX, scaleY), nx: -bx, ny: -by }
-  }
-
-  // Bounding box of water in the downscaled mask to reduce random search.
-  let minx = dw, miny = dh, maxx = -1, maxy = -1, filled = 0
-  for (let y=0;y<dh;y++){
-    for (let x=0;x<dw;x++){
-      if (inside(x,y)){
-        filled++
-        if (x<minx) minx=x
-        if (y<miny) miny=y
-        if (x>maxx) maxx=x
-        if (y>maxy) maxy=y
-      }
-    }
-  }
-  if (!filled) return edge
-
-  const rng = makeRng((filled ^ (srcW<<8) ^ srcH) >>> 0)
-  const areaPx = filled * scaleX * scaleY
-  const targetCount = Math.max(1, Math.min(32, Math.round(areaPx / (spacingBase * spacingBase * 0.9))))
-  const placed = []
-  const minGap = spacingBase * 0.95
-  const farEnough = (x,y) => {
-    for (const q of placed){
-      const dx = x - q.x, dy = y - q.y
-      if ((dx*dx + dy*dy) < minGap*minGap) return false
-    }
-    placed.push({x,y})
-    return true
-  }
-
-  let attempts = 0
-  const maxAttempts = Math.max(180, targetCount * 90)
-  while (placed.length < targetCount && attempts < maxAttempts){
-    attempts++
-    const xs = minx + rng() * Math.max(1, (maxx - minx))
-    const ys = miny + rng() * Math.max(1, (maxy - miny))
-    if (!inside(xs, ys)) continue
-    const info = edgeDistanceInfo(xs, ys)
-    if (!info) continue
-    const d = info.distPx
-    if (d < insetMin || d > insetMax) continue
-    const wx = xs * scaleX, wy = ys * scaleY
-    if (!farEnough(wx, wy)) continue
-
-    // Tangent from shoreline normal, with a little deterministic jitter and varied inset.
-    let tx = -info.ny, ty = info.nx
-    const jitter = (rng() - 0.5) * 0.42
-    const ca = Math.cos(jitter), sa = Math.sin(jitter)
-    const jtx = tx*ca - ty*sa, jty = tx*sa + ty*ca
-    tx = jtx; ty = jty
-
-    const len = lenMin + rng() * (lenMax - lenMin)
-    const bend = (rng() - 0.5) * (6 + len * 0.08)
-    const x1 = wx - tx * len * 0.5
-    const y1 = wy - ty * len * 0.5
-    const x2 = wx + tx * len * 0.5
-    const y2 = wy + ty * len * 0.5
-    const mx = (x1 + x2) * 0.5 + info.nx * bend
-    const my = (y1 + y2) * 0.5 + info.ny * bend
-
-    rctx.beginPath()
-    rctx.moveTo(x1, y1)
-    rctx.quadraticCurveTo(mx, my, x2, y2)
-    rctx.stroke()
-  }
-
-  rctx.globalCompositeOperation = 'destination-in'
-  rctx.drawImage(rawWaterMaskCanvas, 0, 0)
-  rctx.globalCompositeOperation = 'source-over'
-  ectx.drawImage(rippleCanvas, 0, 0)
-  return edge
 }
 
 function buildShadowWorld(maskCanvas, dungeon, ppu) {

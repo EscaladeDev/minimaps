@@ -3,6 +3,7 @@ import { Camera } from "./canvas/camera.js"
 import { snapHard, snapSoft } from "./utils/snap.js"
 import { dist, norm, rotate } from "./utils/math.js"
 import { compileWorldCache, drawCompiledBase, drawCompiledExteriorGrid } from "./canvas/render.js"
+import { PATH_SHAPE_MODES, getDefaultPathShapeSettings, normalizePathShapeSettings, getPathRenderGeometry } from "./utils/path-styles.js"
 
 const canvas = document.querySelector("canvas")
 const ctx = canvas.getContext("2d", { alpha: true })
@@ -80,12 +81,17 @@ function syncToolUI(){
     b.classList.toggle("primary", active)
   })
   const showCorridorWidth = ["path","free","arc"].includes(tool)
+  const showPathShapeControls = ["path","free","arc"].includes(tool)
   const showPolySides = tool === "poly"
   const showLineOptions = tool === "line"
-  const showToolOptions = showCorridorWidth || showPolySides || showLineOptions
+  const showToolOptions = showCorridorWidth || showPolySides || showLineOptions || showPathShapeControls
   const corridorToolRow = document.getElementById("corridorToolRow")
   const polyToolRow = document.getElementById("polyToolRow")
   const lineToolRow = document.getElementById("lineToolRow")
+  const pathShapeRow = document.getElementById("pathShapeRow")
+  const pathSmoothnessRow = document.getElementById("pathSmoothnessRow")
+  const pathAmplitudeRow = document.getElementById("pathAmplitudeRow")
+  const pathFrequencyRow = document.getElementById("pathFrequencyRow")
   if (polyToolOptions) {
     polyToolOptions.classList.toggle("hidden", !showToolOptions)
     polyToolOptions.hidden = !showToolOptions
@@ -101,6 +107,26 @@ function syncToolUI(){
   if (lineToolRow) {
     lineToolRow.classList.toggle("hidden", !showLineOptions)
     lineToolRow.hidden = !showLineOptions
+  }
+  if (pathShapeRow) {
+    pathShapeRow.classList.toggle("hidden", !showPathShapeControls)
+    pathShapeRow.hidden = !showPathShapeControls
+  }
+  const currentShapeMode = PATH_SHAPE_MODES.includes(dungeon.style?.pathShapeMode) ? dungeon.style.pathShapeMode : "smooth"
+  if (pathSmoothnessRow) {
+    const show = showPathShapeControls && currentShapeMode === "smooth"
+    pathSmoothnessRow.classList.toggle("hidden", !show)
+    pathSmoothnessRow.hidden = !show
+  }
+  if (pathAmplitudeRow) {
+    const show = showPathShapeControls && currentShapeMode === "jagged"
+    pathAmplitudeRow.classList.toggle("hidden", !show)
+    pathAmplitudeRow.hidden = !show
+  }
+  if (pathFrequencyRow) {
+    const show = showPathShapeControls && currentShapeMode === "jagged"
+    pathFrequencyRow.classList.toggle("hidden", !show)
+    pathFrequencyRow.hidden = !show
   }
 }
 function setTool(t){
@@ -142,6 +168,8 @@ const btnPropsClear = document.getElementById("btnPropsClear")
 const btnPropsDefaults = document.getElementById("btnPropsDefaults")
 const propsFolderInput = document.getElementById("propsFolderInput")
 const propsShelf = document.getElementById("propsShelf")
+const propsSearchInput = document.getElementById("propsSearchInput")
+const propsTree = document.getElementById("propsTree")
 const tabStyleBtn = document.getElementById("tabStyleBtn")
 const tabAssetsBtn = document.getElementById("tabAssetsBtn")
 const leftDrawer = document.getElementById("leftDrawer")
@@ -296,6 +324,13 @@ function applyToolbarUiOverhaul(){
 const gridSize = document.getElementById("gridSize")
 const corridorWidth = document.getElementById("corridorWidth")
 const corridorWidthOut = document.getElementById("corridorWidthOut")
+const pathShapeMode = document.getElementById("pathShapeMode")
+const pathSmoothness = document.getElementById("pathSmoothness")
+const pathSmoothnessOut = document.getElementById("pathSmoothnessOut")
+const pathAmplitude = document.getElementById("pathAmplitude")
+const pathAmplitudeOut = document.getElementById("pathAmplitudeOut")
+const pathFrequency = document.getElementById("pathFrequency")
+const pathFrequencyOut = document.getElementById("pathFrequencyOut")
 const wallWidth = document.getElementById("wallWidth")
 const wallColor = document.getElementById("wallColor")
 const floorColor = document.getElementById("floorColor")
@@ -334,6 +369,10 @@ const waterOpacity = document.getElementById("waterOpacity")
 const waterWidth = document.getElementById("waterWidth")
 const waterOutlineEnabled = document.getElementById("waterOutlineEnabled")
 const waterRipplesEnabled = document.getElementById("waterRipplesEnabled")
+const waterCellSize = document.getElementById("waterCellSize")
+const waterSeamBright = document.getElementById("waterSeamBright")
+const waterCenterGlow = document.getElementById("waterCenterGlow")
+const waterDepthStrength = document.getElementById("waterDepthStrength")
 const styleRenderGeneral = document.getElementById("styleRenderGeneral")
 const textStylePanel = document.getElementById("textStylePanel")
 const textContentInput = document.getElementById("textContentInput")
@@ -357,7 +396,7 @@ const puckSize = 120
 const C = { x: puckSize/2, y: puckSize/2 }
 const R = 50
 
-const UI_THEME_KEY = "dungeonSketch.uiTheme"
+const UI_THEME_KEY = "DelvSketch.uiTheme"
 
 function getPreferredTheme(){ return "light" }
 
@@ -528,8 +567,20 @@ function syncUI(){
   if (typeof dungeon.style.shadow.allPropsEnabled !== "boolean") dungeon.style.shadow.allPropsEnabled = true
   const __shadowAllPropsToggle = ensureGlobalPropShadowToggleUi()
   gridSize.value = dungeon.gridSize
+  const pathDefaults = getDefaultPathShapeSettings(dungeon.style || {})
+  dungeon.style.pathShapeMode = pathDefaults.shapeMode
+  dungeon.style.pathSmoothness = pathDefaults.smoothness
+  dungeon.style.pathJaggedAmplitude = pathDefaults.amplitude
+  dungeon.style.pathJaggedFrequency = pathDefaults.frequency
   corridorWidth.value = dungeon.style.corridorWidth
   if (corridorWidthOut) corridorWidthOut.textContent = String(dungeon.style.corridorWidth)
+  if (pathShapeMode) pathShapeMode.value = pathDefaults.shapeMode
+  if (pathSmoothness) pathSmoothness.value = String(pathDefaults.smoothness)
+  if (pathSmoothnessOut) pathSmoothnessOut.textContent = pathDefaults.smoothness.toFixed(2)
+  if (pathAmplitude) pathAmplitude.value = String(pathDefaults.amplitude)
+  if (pathAmplitudeOut) pathAmplitudeOut.textContent = pathDefaults.amplitude.toFixed(2)
+  if (pathFrequency) pathFrequency.value = String(pathDefaults.frequency)
+  if (pathFrequencyOut) pathFrequencyOut.textContent = pathDefaults.frequency.toFixed(2)
   wallWidth.value = dungeon.style.wallWidth
   if (wallColor) wallColor.value = dungeon.style.wallColor || "#1f2933"
   if (floorColor) floorColor.value = dungeon.style.floorColor || dungeon.style.paper || "#ffffff"
@@ -573,12 +624,22 @@ function syncUI(){
   if (!dungeon.style.water.color) dungeon.style.water.color = "#6bb8ff"
   if (!Number.isFinite(Number(dungeon.style.water.opacity))) dungeon.style.water.opacity = 0.4
   if (!Number.isFinite(Number(dungeon.style.water.width))) dungeon.style.water.width = 52
+  if (!Number.isFinite(Number(dungeon.style.water.glowStrength))) dungeon.style.water.glowStrength = 1.15
+  if (!Number.isFinite(Number(dungeon.style.water.depthStrength))) dungeon.style.water.depthStrength = 0.95
+  if (!Number.isFinite(Number(dungeon.style.water.sparkleAmount))) dungeon.style.water.sparkleAmount = 0.38
+  if (!Number.isFinite(Number(dungeon.style.water.centerGlow))) dungeon.style.water.centerGlow = 1.05
+  if (!Number.isFinite(Number(dungeon.style.water.seamBright))) dungeon.style.water.seamBright = 1.15
+  if (!Number.isFinite(Number(dungeon.style.water.cellSize))) dungeon.style.water.cellSize = 1.15
   if (waterEnabled) waterEnabled.checked = !!dungeon.style.water.enabled
   if (waterColor) waterColor.value = dungeon.style.water.color
   if (waterOpacity) waterOpacity.value = String(dungeon.style.water.opacity)
   if (waterWidth) waterWidth.value = String(dungeon.style.water.width)
   if (waterOutlineEnabled) waterOutlineEnabled.checked = dungeon.style.water.outlineEnabled !== false
   if (waterRipplesEnabled) waterRipplesEnabled.checked = dungeon.style.water.ripplesEnabled !== false
+  if (waterCellSize) waterCellSize.value = String(dungeon.style.water.cellSize)
+  if (waterSeamBright) waterSeamBright.value = String(dungeon.style.water.seamBright)
+  if (waterCenterGlow) waterCenterGlow.value = String(dungeon.style.water.centerGlow)
+  if (waterDepthStrength) waterDepthStrength.value = String(dungeon.style.water.depthStrength)
   if (showTextPreview) showTextPreview.checked = !!dungeon.style.showTextPreview
   if (showTextExport) showTextExport.checked = !!dungeon.style.showTextExport
   snapStrength.value = dungeon.style.snapStrength
@@ -604,6 +665,25 @@ showCoverPage()
 
 gridSize.addEventListener("input", () => dungeon.gridSize = Number(gridSize.value))
 corridorWidth.addEventListener("input", () => { dungeon.style.corridorWidth = Number(corridorWidth.value); if (corridorWidthOut) corridorWidthOut.textContent = String(dungeon.style.corridorWidth) })
+if (pathShapeMode) pathShapeMode.addEventListener("change", () => {
+  dungeon.style.pathShapeMode = PATH_SHAPE_MODES.includes(pathShapeMode.value) ? pathShapeMode.value : "smooth"
+  if (tool === "free" || tool === "path" || tool === "arc") {
+    resetTransientDrafts()
+  }
+  syncToolUI()
+})
+if (pathSmoothness) pathSmoothness.addEventListener("input", () => {
+  dungeon.style.pathSmoothness = Math.max(0, Math.min(1, Number(pathSmoothness.value) || 0))
+  if (pathSmoothnessOut) pathSmoothnessOut.textContent = Number(dungeon.style.pathSmoothness).toFixed(2)
+})
+if (pathAmplitude) pathAmplitude.addEventListener("input", () => {
+  dungeon.style.pathJaggedAmplitude = Math.max(0, Math.min(3.5, Number(pathAmplitude.value) || 0))
+  if (pathAmplitudeOut) pathAmplitudeOut.textContent = Number(dungeon.style.pathJaggedAmplitude).toFixed(2)
+})
+if (pathFrequency) pathFrequency.addEventListener("input", () => {
+  dungeon.style.pathJaggedFrequency = Math.max(0.35, Math.min(2.8, Number(pathFrequency.value) || 1))
+  if (pathFrequencyOut) pathFrequencyOut.textContent = Number(dungeon.style.pathJaggedFrequency).toFixed(2)
+})
 wallWidth.addEventListener("input", () => dungeon.style.wallWidth = Number(wallWidth.value))
 if (wallColor) wallColor.addEventListener("input", () => dungeon.style.wallColor = wallColor.value)
 if (floorColor) {
@@ -668,6 +748,10 @@ if (waterOpacity) waterOpacity.addEventListener("input", () => { dungeon.style.w
 if (waterWidth) waterWidth.addEventListener("input", () => { dungeon.style.water.width = Number(waterWidth.value) })
 if (waterOutlineEnabled) waterOutlineEnabled.addEventListener("change", () => { dungeon.style.water.outlineEnabled = !!waterOutlineEnabled.checked; compiledSig = "" })
 if (waterRipplesEnabled) waterRipplesEnabled.addEventListener("change", () => { dungeon.style.water.ripplesEnabled = !!waterRipplesEnabled.checked; compiledSig = "" })
+if (waterCellSize) waterCellSize.addEventListener("input", () => { dungeon.style.water.cellSize = Number(waterCellSize.value); compiledSig = "" })
+if (waterSeamBright) waterSeamBright.addEventListener("input", () => { dungeon.style.water.seamBright = Number(waterSeamBright.value); dungeon.style.water.glowStrength = Math.max(Number(dungeon.style.water.glowStrength || 1.15), Number(waterSeamBright.value) * 0.92); compiledSig = "" })
+if (waterCenterGlow) waterCenterGlow.addEventListener("input", () => { dungeon.style.water.centerGlow = Number(waterCenterGlow.value); compiledSig = "" })
+if (waterDepthStrength) waterDepthStrength.addEventListener("input", () => { dungeon.style.water.depthStrength = Number(waterDepthStrength.value); compiledSig = "" })
 if (lineDashed) lineDashed.addEventListener("change", () => { if (!dungeon.style.lines || typeof dungeon.style.lines !== "object") dungeon.style.lines = {}; dungeon.style.lines.dashed = !!lineDashed.checked })
 
 if (textContentInput) textContentInput.addEventListener('input', () => { const t = getSelectedText(); if (t) { t.text = textContentInput.value; if (textEditorState && textEditorState.id === t.id && textCanvasEditor && document.activeElement !== textCanvasEditor) textCanvasEditor.value = t.text; if (textEditorState && textEditorState.id === t.id) positionTextEditorOverlayForText(t) } })
@@ -726,9 +810,14 @@ function normalizePlacedPropObj(p){
   const baseW = Math.max(1, safeNum(p?.baseW, fallbackW))
   const baseH = Math.max(1, safeNum(p?.baseH, fallbackH))
   const scale = Math.max(0.05, safeNum(p?.scale, 1))
+  const propId = (p && p.propId != null) ? String(p.propId) : undefined
+  const assetId = (p && p.assetId != null) ? String(p.assetId) : undefined
   return {
     id: String(p?.id || ((typeof globalThis!=='undefined' && globalThis.crypto && globalThis.crypto.randomUUID) ? globalThis.crypto.randomUUID() : (Date.now()+Math.random()))),
-    propId: (p && p.propId != null) ? String(p.propId) : undefined,
+    propId,
+    assetId,
+    source: String(p?.source || (assetId ? "imported" : "bundled")),
+    mime: String(p?.mime || ""),
     name: String(p?.name || "Prop"),
     url: String(p?.url || ""),
     x: safeNum(p?.x, 0),
@@ -742,6 +831,9 @@ function normalizePlacedPropObj(p){
     flipX: p?.flipX === true,
     flipY: p?.flipY === true,
     shadowDisabled: p?.shadowDisabled === true,
+    tags: Array.isArray(p?.tags) ? p.tags.slice() : normalizeAssetTags(p?.tags),
+    navPaths: Array.isArray(p?.navPaths) ? p.navPaths.slice() : normalizeAssetTags(p?.navPaths),
+    primaryPath: String(p?.primaryPath || ''),
   }
 }
 function getPlacedPropRenderSize(prop){
@@ -769,7 +861,7 @@ let textEditorState = null
 const loadedGoogleFonts = new Set()
 const googleFontLoadPromises = new Map()
 const googleFontLinkEls = new Map()
-const GOOGLE_FONT_RECENTS_KEY = "dungeonSketch.googleFontRecents"
+const GOOGLE_FONT_RECENTS_KEY = "DelvSketch.googleFontRecents"
 
 function normalizeGoogleFontFamilyName(raw){
   return String(raw || "").replace(/["']/g, "").replace(/\s+/g, " ").trim()
@@ -1295,6 +1387,9 @@ function placePropAtWorld(prop, world){
   const placed = {
     id: (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now() + Math.random()),
     propId: prop.id,
+    assetId: prop.assetId ? String(prop.assetId) : undefined,
+    source: String(prop.source || (prop.assetId ? 'imported' : 'bundled')),
+    mime: String(prop.mime || ''),
     name: prop.name,
     url: prop.url,
     x: placeWorld.x,
@@ -1403,17 +1498,26 @@ function getPropShadowCanvasLikeWalls(propInst, img, drawW, drawH, zoomOverride 
   const cw = w + pad * 2, ch = h + pad * 2
 
   // Alpha mask for the prop image.
+  const baseAlphaC = document.createElement('canvas'); baseAlphaC.width = cw; baseAlphaC.height = ch
+  const bactx = baseAlphaC.getContext('2d')
+  bactx.clearRect(0,0,cw,ch)
+  bactx.imageSmoothingEnabled = false
+  bactx.save()
+  bactx.translate(pad + w/2, pad + h/2)
+  bactx.scale(flipX ? -1 : 1, flipY ? -1 : 1)
+  bactx.drawImage(img, -w/2, -h/2, w, h)
+  bactx.restore()
+
+  // Build a slightly expanded source mask for shadow casting while keeping a tighter
+  // body mask for the cutout. Using the same expanded mask for both can leave a pale
+  // seam between the prop and the shadow on anti-aliased assets.
   const alphaC = document.createElement('canvas'); alphaC.width = cw; alphaC.height = ch
   const actx = alphaC.getContext('2d')
-  actx.clearRect(0,0,cw,ch)
   actx.imageSmoothingEnabled = false
-  actx.save()
-  actx.translate(pad + w/2, pad + h/2)
-  actx.scale(flipX ? -1 : 1, flipY ? -1 : 1)
-  actx.drawImage(img, -w/2, -h/2, w, h)
-  actx.restore()
+  actx.drawImage(baseAlphaC, 0, 0)
 
-  // Slightly dilate the mask so stroke-based SVG icons (doors/chests/etc.) don't produce near-invisible shadows.
+  // Slightly dilate the cast source so stroke-based SVG icons (doors/chests/etc.)
+  // still produce a visible shadow.
   if (feather > 0){
     const dilate = document.createElement('canvas'); dilate.width = cw; dilate.height = ch
     const dctx = dilate.getContext('2d')
@@ -1421,7 +1525,7 @@ function getPropShadowCanvasLikeWalls(propInst, img, drawW, drawH, zoomOverride 
     for (let ox = -feather; ox <= feather; ox++){
       for (let oy = -feather; oy <= feather; oy++){
         if ((ox*ox + oy*oy) > feather*feather) continue
-        dctx.drawImage(alphaC, ox, oy)
+        dctx.drawImage(baseAlphaC, ox, oy)
       }
     }
     actx.clearRect(0,0,cw,ch)
@@ -1442,7 +1546,7 @@ function getPropShadowCanvasLikeWalls(propInst, img, drawW, drawH, zoomOverride 
     sctx.drawImage(alphaC, ox, oy)
   }
   sctx.globalCompositeOperation = 'destination-out'
-  sctx.drawImage(alphaC, 0, 0)
+  sctx.drawImage(baseAlphaC, 0, 0)
   sctx.globalCompositeOperation = 'source-over'
 
   // Normalize the mask to binary alpha so overlapping sweep samples don't become darker.
@@ -1454,6 +1558,40 @@ function getPropShadowCanvasLikeWalls(propInst, img, drawW, drawH, zoomOverride 
     }
     sctx.putImageData(maskImg, 0, 0)
   } catch {}
+
+  // Bridge the tiny anti-aliased halo/gap that can appear between a prop sprite
+  // and the start of its shadow. Keep the overlap modest, then carve back the
+  // light-facing side so the shadow does not wrap around the prop silhouette.
+  const bridgeX = dx === 0 ? 0 : -Math.sign(dx)
+  const bridgeY = dy === 0 ? 0 : -Math.sign(dy)
+  if (bridgeX !== 0 || bridgeY !== 0){
+    const bridgeSteps = 1
+    const bridgeC = document.createElement('canvas'); bridgeC.width = cw; bridgeC.height = ch
+    const bctx = bridgeC.getContext('2d')
+    bctx.imageSmoothingEnabled = false
+    for (let i = 0; i <= bridgeSteps; i++){
+      bctx.drawImage(sweepC, bridgeX * i, bridgeY * i)
+    }
+    sctx.clearRect(0, 0, cw, ch)
+    sctx.drawImage(bridgeC, 0, 0)
+
+    // Remove the faint halo that can survive on the light-facing / shoulder sides
+    // of the prop after bridging. We subtract a slightly expanded copy of the prop
+    // body, biased toward the light, so the shadow starts flush only on the cast side.
+    const blockerPad = Math.max(1, Math.min(3, feather + 1))
+    const blockerC = document.createElement('canvas'); blockerC.width = cw; blockerC.height = ch
+    const blctx = blockerC.getContext('2d')
+    blctx.imageSmoothingEnabled = false
+    for (let ox = -blockerPad; ox <= blockerPad; ox++){
+      for (let oy = -blockerPad; oy <= blockerPad; oy++){
+        if ((ox*ox + oy*oy) > blockerPad*blockerPad) continue
+        blctx.drawImage(baseAlphaC, ox, oy)
+      }
+    }
+    sctx.globalCompositeOperation = 'destination-out'
+    sctx.drawImage(blockerC, bridgeX * blockerPad, bridgeY * blockerPad)
+    sctx.globalCompositeOperation = 'source-over'
+  }
 
   const outC = document.createElement('canvas'); outC.width = cw; outC.height = ch
   const octx = outC.getContext('2d')
@@ -1534,8 +1672,10 @@ function drawPlacedPropsTo(targetCtx, targetCamera, targetW, targetH, cacheForWa
   const propOccC = propShadowsGloballyEnabled ? getPropLayerTemp('propOcc', targetW, targetH) : null
   const wallOccC = propShadowsGloballyEnabled ? getPropLayerTemp('wallOcc', targetW, targetH) : null
   const shadowTintC = propShadowsGloballyEnabled ? getPropLayerTemp('shadowTint', targetW, targetH) : null
+  const propOccExpandedC = propShadowsGloballyEnabled ? getPropLayerTemp('propOccExpanded', targetW, targetH) : null
   const smctx = shadowMaskC ? shadowMaskC.getContext('2d', { willReadFrequently: true }) : null
   const poctx = propOccC ? propOccC.getContext('2d') : null
+  const poectx = propOccExpandedC ? propOccExpandedC.getContext('2d') : null
   const woctx = wallOccC ? wallOccC.getContext('2d', { willReadFrequently: true }) : null
   const stctx = shadowTintC ? shadowTintC.getContext('2d') : null
 
@@ -1548,6 +1688,11 @@ function drawPlacedPropsTo(targetCtx, targetCamera, targetW, targetH, cacheForWa
     poctx.clearRect(0,0,targetW,targetH)
     poctx.globalCompositeOperation = 'source-over'
     poctx.imageSmoothingEnabled = false
+  }
+  if (poectx) {
+    poectx.clearRect(0,0,targetW,targetH)
+    poectx.globalCompositeOperation = 'source-over'
+    poectx.imageSmoothingEnabled = false
   }
   if (woctx) {
     woctx.clearRect(0,0,targetW,targetH)
@@ -1604,9 +1749,51 @@ function drawPlacedPropsTo(targetCtx, targetCamera, targetW, targetH, cacheForWa
       smctx.putImageData(maskImg, 0, 0)
     } catch {}
 
-    // Never draw prop shadows over prop bodies.
+    // Never draw prop shadows under the semi-transparent fringe of prop bodies.
+    // Use two cutouts:
+    // 1) a tiny isotropic expansion to hide anti-aliased seams directly under the sprite edge
+    // 2) a light-side-biased carve so the shadow does not wrap around the silhouette on the lit side
+    const occOverlapPx = Math.max(1, Math.min(2, Math.round(targetCamera.zoom * 0.03)))
+    const lightDir = (() => {
+      const g = dungeon.style?.shadow?.dir || { x: 0.707, y: 0.707 }
+      const lx = -Number(g.x || 0)
+      const ly = -Number(g.y || 0)
+      const mag = Math.hypot(lx, ly) || 1
+      return { x: lx / mag, y: ly / mag }
+    })()
+    const occMaskForCutout = (() => {
+      if (!poectx || !propOccExpandedC) return propOccC
+      poectx.clearRect(0,0,targetW,targetH)
+
+      // Small symmetric overlap so the shadow tucks just under soft sprite edges.
+      if (occOverlapPx > 0){
+        for (let ox = -occOverlapPx; ox <= occOverlapPx; ox++){
+          for (let oy = -occOverlapPx; oy <= occOverlapPx; oy++){
+            if ((ox*ox + oy*oy) > occOverlapPx*occOverlapPx) continue
+            poectx.drawImage(propOccC, ox, oy)
+          }
+        }
+      } else {
+        poectx.drawImage(propOccC, 0, 0)
+      }
+
+      // Stronger carve on the light-facing side only, which removes pale/white streaks
+      // without opening a gap on the cast side where the shadow should start flush.
+      const lightCarvePx = Math.max(1, Math.min(4, Math.round(targetCamera.zoom * 0.06)))
+      const stepX = lightDir.x === 0 ? 0 : Math.sign(lightDir.x)
+      const stepY = lightDir.y === 0 ? 0 : Math.sign(lightDir.y)
+      for (let i = 1; i <= lightCarvePx; i++){
+        const ox = Math.round(lightDir.x * i)
+        const oy = Math.round(lightDir.y * i)
+        poectx.drawImage(propOccC, ox, oy)
+        // Fill in coarse pixel stairs for diagonal light directions.
+        if (stepX !== 0) poectx.drawImage(propOccC, ox + stepX, oy)
+        if (stepY !== 0) poectx.drawImage(propOccC, ox, oy + stepY)
+      }
+      return propOccExpandedC
+    })()
     smctx.globalCompositeOperation = 'destination-out'
-    smctx.drawImage(propOccC, 0, 0)
+    smctx.drawImage(occMaskForCutout, 0, 0)
     smctx.globalCompositeOperation = 'source-over'
 
     // Clip prop shadows to dungeon interior so they cannot leak outside walls.
@@ -1758,9 +1945,470 @@ let builtInPropsCatalog = []
 let importedPropsCatalog = []
 let propsCatalog = []
 let bundledPropsLoadQueued = false
+let assetBrowserActivePath = "all"
+let assetBrowserSearchTerm = ""
+
+function slugifyAssetToken(value){
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+}
+function titleCaseAssetToken(value){
+  return String(value || '').replace(/[-_]+/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())
+}
+function normalizeAssetTags(input){
+  if (Array.isArray(input)) return input.map(v => slugifyAssetToken(v)).filter(Boolean)
+  if (typeof input === 'string') return input.split(',').map(v => slugifyAssetToken(v)).filter(Boolean)
+  return []
+}
+function inferFlatAssetTags(meta = {}){
+  const out = []
+  const push = (...values) => {
+    for (const value of values){
+      const token = slugifyAssetToken(value)
+      if (token) out.push(token)
+    }
+  }
+  const category = String(meta.category || '').toLowerCase()
+  const name = String(meta.name || '').toLowerCase()
+  const id = String(meta.id || '').toLowerCase()
+  const src = String(meta.src || '').toLowerCase()
+  const haystack = `${name} ${id} ${src}`
+  if (meta.source === 'imported') push('imported', 'custom')
+  if (category) push(category)
+  if (category.includes('floor')) push('details', 'floor')
+  if (/door|arch/.test(haystack)) push('structure', 'doors')
+  if (/bed/.test(haystack)) push('interior', 'furniture', 'sleeping', 'beds')
+  if (/table/.test(haystack)) push('interior', 'furniture', 'tables')
+  if (/chest|crate/.test(haystack)) push('interior', 'storage')
+  if (/campfire|brazier|torch|fire/.test(haystack)) push('lighting', 'fire')
+  if (/stairs/.test(haystack)) push('structure', 'stairs')
+  if (/column/.test(haystack)) push('structure', 'columns')
+  if (/grate|drain/.test(haystack)) push('details', 'floor', 'drains')
+  if (/cobweb|web/.test(haystack)) push('details', 'dressing', 'cobwebs')
+  if (!out.length) push(category.includes('floor') ? 'details' : 'props', 'misc')
+  return Array.from(new Set(out))
+}
+function buildCatalogTagModel(list = []){
+  const tagCounts = new Map()
+  const pairCounts = new Map()
+  const items = Array.isArray(list) ? list : []
+  for (const item of items){
+    const tags = Array.from(new Set(normalizeAssetTags(item?.tags)))
+    for (const tag of tags) tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1)
+    for (let i = 0; i < tags.length; i++){
+      for (let j = i + 1; j < tags.length; j++){
+        const a = tags[i]
+        const b = tags[j]
+        const key = a < b ? `${a}|${b}` : `${b}|${a}`
+        pairCounts.set(key, (pairCounts.get(key) || 0) + 1)
+      }
+    }
+  }
+  const getPairCount = (a, b) => {
+    if (!a || !b || a === b) return 0
+    const key = a < b ? `${a}|${b}` : `${b}|${a}`
+    return pairCounts.get(key) || 0
+  }
+  const parentMap = new Map()
+  for (const child of tagCounts.keys()){
+    const childCount = tagCounts.get(child) || 0
+    const candidates = []
+    for (const parent of tagCounts.keys()){
+      if (!parent || parent === child) continue
+      const parentCount = tagCounts.get(parent) || 0
+      if (parentCount < childCount) continue
+      const pairCount = getPairCount(child, parent)
+      if (!pairCount) continue
+      const confidence = pairCount / Math.max(1, childCount)
+      if (confidence < 0.34) continue
+      const breadth = parentCount / Math.max(1, childCount)
+      const score = confidence * 4 + Math.min(breadth, 4) + (parent.length < child.length ? 0.2 : 0)
+      candidates.push({ tag: parent, score, pairCount, parentCount, childCount })
+    }
+    candidates.sort((a, b) => b.score - a.score || b.pairCount - a.pairCount || b.parentCount - a.parentCount || a.tag.localeCompare(b.tag))
+    parentMap.set(child, candidates.slice(0, 3).map(c => c.tag))
+  }
+  return { tagCounts, pairCounts, parentMap, getPairCount }
+}
+function deriveNavPathsFromTags(tags, model = null){
+  const normalized = Array.from(new Set(normalizeAssetTags(tags)))
+  if (!normalized.length) return ['misc']
+  if (!model) return normalized
+  const tagCounts = model.tagCounts || new Map()
+  const parentMap = model.parentMap || new Map()
+  const results = new Set()
+  const maxDepth = 4
+  const tagSet = new Set(normalized)
+  const addPath = (parts) => {
+    const clean = parts.map(slugifyAssetToken).filter(Boolean)
+    if (clean.length) results.add(clean.join('/'))
+  }
+  for (const tag of normalized) addPath([tag])
+  const recurse = (leaf, path, visited, depth) => {
+    if (depth >= maxDepth) return
+    const parents = (parentMap.get(leaf) || []).filter(parent => tagSet.has(parent) && !visited.has(parent))
+    for (const parent of parents){
+      const next = [parent, ...path]
+      addPath(next)
+      const nextVisited = new Set(visited)
+      nextVisited.add(parent)
+      recurse(parent, next, nextVisited, depth + 1)
+    }
+  }
+  const leaves = normalized.slice().sort((a, b) => {
+    const countDiff = (tagCounts.get(a) || 0) - (tagCounts.get(b) || 0)
+    if (countDiff) return countDiff
+    return a.localeCompare(b)
+  })
+  for (const leaf of leaves){
+    recurse(leaf, [leaf], new Set([leaf]), 1)
+  }
+  return Array.from(results).sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b))
+}
+function buildAssetTaxonomyMeta(meta = {}, model = null){
+  const explicit = normalizeAssetTags(meta.tags)
+  const inferred = explicit.length ? [] : inferFlatAssetTags(meta)
+  const tags = Array.from(new Set([...explicit, ...inferred]))
+  const navPaths = deriveNavPathsFromTags(tags, model)
+  const primaryPath = navPaths.slice().sort((a, b) => b.split('/').length - a.split('/').length || a.localeCompare(b))[0] || tags[0] || 'misc'
+  return { tags, navPaths, primaryPath }
+}
+function attachAssetTaxonomy(prop, meta = {}, model = null){
+  const tax = buildAssetTaxonomyMeta({ ...prop, ...meta }, model)
+  prop.tags = tax.tags
+  prop.navPaths = tax.navPaths
+  prop.primaryPath = tax.primaryPath
+  prop.searchText = [prop.name, prop.id, prop.source, prop.category, ...(prop.tags || []), ...(prop.navPaths || [])].filter(Boolean).join(' ').toLowerCase()
+  return prop
+}
+function getAssetBrowserNodes(list){
+  const nodes = new Map()
+  const seenByNode = new Map()
+  const items = Array.isArray(list) ? list : []
+  nodes.set('all', { path:'all', label:'All', count:items.length, depth:0, parentPath:null, children:[] })
+  const bumpNode = (key, label, depth, parentPath, assetKey) => {
+    const node = nodes.get(key) || { path:key, label, count:0, depth, parentPath, children:[] }
+    node.label = label
+    node.depth = depth
+    node.parentPath = parentPath
+    if (!seenByNode.has(key)) seenByNode.set(key, new Set())
+    const seen = seenByNode.get(key)
+    if (!seen.has(assetKey)) {
+      seen.add(assetKey)
+      node.count += 1
+    }
+    nodes.set(key, node)
+    return node
+  }
+  for (const item of items) {
+    const assetKey = String(item?.assetId || item?.propId || item?.id || item?.name || Math.random())
+    const paths = Array.isArray(item?.navPaths) && item.navPaths.length ? item.navPaths : [item?.primaryPath || 'misc']
+    for (const path of paths){
+      const parts = String(path || '').split('/').filter(Boolean)
+      let accum = ''
+      for (let i = 0; i < parts.length; i++){
+        const part = parts[i]
+        const parent = accum || 'all'
+        accum = accum ? `${accum}/${part}` : part
+        const key = accum.toLowerCase()
+        bumpNode(key, titleCaseAssetToken(part), i + 1, parent, assetKey)
+        const parentNode = nodes.get(parent)
+        if (parentNode && !parentNode.children.includes(key)) parentNode.children.push(key)
+      }
+    }
+  }
+  return nodes
+}
+function sortAssetBrowserNodes(a, b){
+  if (!a && !b) return 0
+  if (!a) return 1
+  if (!b) return -1
+  const countDiff = Number(b.count || 0) - Number(a.count || 0)
+  if (countDiff) return countDiff
+  const depthDiff = Number(a.depth || 0) - Number(b.depth || 0)
+  if (depthDiff) return depthDiff
+  return String(a.label || a.path || '').localeCompare(String(b.label || b.path || ''), undefined, { sensitivity:'base', numeric:true })
+}
+function getAssetBrowserAncestors(path, nodes){
+  const out = []
+  let current = String(path || 'all').toLowerCase()
+  while (current && current !== 'all'){
+    const node = nodes.get(current)
+    if (!node) break
+    out.unshift(node)
+    current = node.parentPath || 'all'
+  }
+  return out
+}
+function encodeRelatedAssetBrowserPath(basePath, tags){
+  const base = String(basePath || 'all').toLowerCase()
+  const list = Array.isArray(tags) ? tags : [tags]
+  const normalized = Array.from(new Set(list.map(slugifyAssetToken).filter(Boolean)))
+  if (!normalized.length) return base
+  return `related:${base}|${normalized.join('+')}`
+}
+function parseAssetBrowserPathState(path){
+  const raw = String(path || 'all').toLowerCase()
+  if (!raw.startsWith('related:')) return { mode:'path', raw, basePath:raw || 'all', tag:'', tags:[] }
+  const payload = raw.slice('related:'.length)
+  const pipeIndex = payload.lastIndexOf('|')
+  if (pipeIndex === -1) return { mode:'path', raw, basePath:'all', tag:'', tags:[] }
+  const basePath = payload.slice(0, pipeIndex) || 'all'
+  const tags = Array.from(new Set(String(payload.slice(pipeIndex + 1) || '').split('+').map(slugifyAssetToken).filter(Boolean)))
+  return { mode:'related', raw, basePath, tag:tags[tags.length - 1] || '', tags }
+}
+function getRelatedTagNodesForSelection(items, activePath, nodes){
+  const list = Array.isArray(items) ? items : []
+  const pathState = parseAssetBrowserPathState(activePath)
+  const excluded = new Set(String(pathState.basePath || 'all').split('/').map(slugifyAssetToken).filter(Boolean))
+  for (const activeTag of (pathState.tags || [])) excluded.add(activeTag)
+  const contextualCounts = new Map()
+  for (const item of list){
+    const seenTags = new Set()
+    const tags = normalizeAssetTags(item?.tags)
+    for (const tag of tags){
+      if (!tag || excluded.has(tag) || seenTags.has(tag)) continue
+      seenTags.add(tag)
+      contextualCounts.set(tag, (contextualCounts.get(tag) || 0) + 1)
+    }
+  }
+  return Array.from(contextualCounts.keys()).map(tag => {
+    const existing = nodes.get(tag)
+    const globalCount = existing?.count || (Array.isArray(propsCatalog) ? propsCatalog.filter(asset => normalizeAssetTags(asset?.tags).includes(tag)).length : 0)
+    return {
+      path: existing?.path || tag || encodeRelatedAssetBrowserPath(pathState.basePath, [...(pathState.tags || []), tag]),
+      label: existing?.label || titleCaseAssetToken(tag),
+      count: globalCount,
+      contextualCount: contextualCounts.get(tag) || 0,
+      depth: existing?.depth || 1,
+      parentPath: existing?.parentPath || 'all',
+      children: existing?.children || [],
+      relatedTag: tag,
+      basePath: pathState.basePath || 'all'
+    }
+  }).sort(sortAssetBrowserNodes)
+}
+function assetMatchesBrowser(prop){
+  if (!prop) return false
+  const term = String(assetBrowserSearchTerm || '').trim().toLowerCase()
+  const pathState = parseAssetBrowserPathState(assetBrowserActivePath || 'all')
+  const basePath = String(pathState.basePath || 'all').toLowerCase()
+  const navPaths = Array.isArray(prop.navPaths) ? prop.navPaths.map(p => String(p || '').toLowerCase()) : []
+  const primaryPath = String(prop.primaryPath || '').toLowerCase()
+  const matchesBasePath = (basePath === 'all') || navPaths.some(p => p === basePath || p.startsWith(basePath + '/')) || primaryPath === basePath
+  if (!matchesBasePath) return false
+  if (pathState.mode === 'related' && Array.isArray(pathState.tags) && pathState.tags.length) {
+    const tags = normalizeAssetTags(prop?.tags)
+    for (const activeTag of pathState.tags){
+      if (!tags.includes(activeTag)) return false
+    }
+  }
+  if (!term) return true
+  return String(prop.searchText || '').includes(term)
+}
+function renderAssetTree(){
+  if (!propsTree) return
+  propsTree.innerHTML = ''
+  const nodes = getAssetBrowserNodes(propsCatalog)
+  const allNode = nodes.get('all') || { path:'all', label:'All', count:Array.isArray(propsCatalog) ? propsCatalog.length : 0, children:[] }
+  const pathState = parseAssetBrowserPathState(assetBrowserActivePath || 'all')
+  let activePath = pathState.raw
+  if (pathState.mode === 'path' && activePath !== 'all' && !nodes.has(activePath)) activePath = assetBrowserActivePath = 'all'
+
+  const makeChip = (node, extraClass = '') => {
+    if (!node) return null
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'assetTreeChip' + (node.path === activePath ? ' active' : '') + (extraClass ? ` ${extraClass}` : '')
+    btn.textContent = `${node.label} (${node.count})`
+    btn.title = node.path
+    btn.addEventListener('click', () => {
+      assetBrowserActivePath = (node.path === activePath) ? 'all' : node.path
+      renderPropsShelf()
+    })
+    return btn
+  }
+  const addGroup = (label, items, kind = '') => {
+    if (!Array.isArray(items) || !items.length) return
+    const wrap = document.createElement('div')
+    wrap.className = 'assetTreeGroup' + (kind ? ` ${kind}` : '')
+    if (label){
+      const heading = document.createElement('div')
+      heading.className = 'assetTreeGroupLabel'
+      heading.textContent = label
+      wrap.appendChild(heading)
+    }
+    const chips = document.createElement('div')
+    chips.className = 'assetTreeGroupChips'
+    for (const item of items){
+      const chip = makeChip(item, kind === 'breadcrumbs' ? 'crumb' : '')
+      if (chip) chips.appendChild(chip)
+    }
+    wrap.appendChild(chips)
+    propsTree.appendChild(wrap)
+  }
+
+  const rootNodes = (allNode.children || []).map(path => nodes.get(path)).filter(Boolean).sort(sortAssetBrowserNodes)
+  const activeNode = pathState.mode === 'related' ? nodes.get(pathState.basePath || 'all') : nodes.get(activePath)
+
+  addGroup('', [allNode, ...rootNodes], 'roots')
+
+  if (activePath !== 'all' && activeNode){
+    const ancestors = getAssetBrowserAncestors(pathState.mode === 'related' ? (pathState.basePath || 'all') : activePath, nodes)
+    if (pathState.mode === 'related' && Array.isArray(pathState.tags) && pathState.tags.length){
+      pathState.tags.forEach((activeTag, index) => {
+        ancestors.push({
+          path: encodeRelatedAssetBrowserPath(pathState.basePath, pathState.tags.slice(0, index + 1)),
+          label: titleCaseAssetToken(activeTag),
+          count: (Array.isArray(propsCatalog) ? propsCatalog : []).filter(asset => {
+            const tags = normalizeAssetTags(asset?.tags)
+            const navPaths = Array.isArray(asset?.navPaths) ? asset.navPaths.map(p => String(p || '').toLowerCase()) : []
+            const primaryPath = String(asset?.primaryPath || '').toLowerCase()
+            const base = String(pathState.basePath || 'all').toLowerCase()
+            const matchesBasePath = (base === 'all') || navPaths.some(p => p === base || p.startsWith(base + '/')) || primaryPath === base
+            if (!matchesBasePath) return false
+            return pathState.tags.slice(0, index + 1).every(tag => tags.includes(tag))
+          }).length,
+          depth: Number(activeNode?.depth || 0) + 1 + index,
+          parentPath: index ? encodeRelatedAssetBrowserPath(pathState.basePath, pathState.tags.slice(0, index)) : (pathState.basePath || 'all'),
+          children: []
+        })
+      })
+    }
+    addGroup('Path', ancestors, 'breadcrumbs')
+
+    const childNodes = pathState.mode === 'related'
+      ? []
+      : (activeNode.children || []).map(path => nodes.get(path)).filter(Boolean).sort(sortAssetBrowserNodes)
+    if (childNodes.length){
+      addGroup('Narrow further', childNodes, 'children')
+    } else {
+      const selectedItems = (Array.isArray(propsCatalog) ? propsCatalog : []).filter(assetMatchesBrowser)
+      const relatedTagNodes = getRelatedTagNodesForSelection(selectedItems, activePath, nodes).filter(node => String(node.path || '').toLowerCase() !== activePath)
+      if (relatedTagNodes.length) addGroup('Related tags', relatedTagNodes, 'siblings')
+    }
+  }
+}
+function makeCustomAssetId(seed = "asset"){
+  const base = String(seed || "asset").replace(/\.[^.]+$/, "").replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "asset"
+  const suffix = (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now() + Math.random())
+  return `custom-${base}-${suffix}`
+}
+function readFileAsDataURL(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error || new Error('Failed to read file'))
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.readAsDataURL(file)
+  })
+}
+function getMimeFromDataUrl(dataUrl){
+  const m = /^data:([^;,]+)[;,]/i.exec(String(dataUrl || ''))
+  return m ? String(m[1]).toLowerCase() : ''
+}
+function isEmbeddedCustomPropLike(value){
+  return !!value && /^(data:image\/|blob:)/i.test(String(value))
+}
+function buildImportedPropFromEmbeddedAsset(asset, i = 0){
+  if (!asset || !asset.assetId || !asset.data) return null
+  return attachAssetTaxonomy({
+    id: String(asset.assetId),
+    assetId: String(asset.assetId),
+    name: String(asset.name || `Image ${i+1}`).replace(/\.[^.]+$/, "") || `Image ${i+1}`,
+    url: String(asset.data),
+    mime: String(asset.mime || getMimeFromDataUrl(asset.data) || ''),
+    source: 'imported'
+  }, { tags: asset.tags || ['imported', 'custom'] })
+}
+function rebuildImportedPropsFromEmbeddedAssets(list){
+  importedPropsCatalog = Array.isArray(list)
+    ? list.map((asset, i) => buildImportedPropFromEmbeddedAsset(asset, i)).filter(Boolean)
+    : []
+  rebuildPropsCatalog()
+  for (const p of importedPropsCatalog) getPropImage(p)
+  renderPropsShelf()
+}
+function collectUsedEmbeddedAssetsFromPlacedProps(list){
+  const byId = new Map()
+  for (const raw of (list || [])) {
+    const p = normalizePlacedPropObj(raw)
+    if (!p) continue
+    const assetId = String(p.assetId || '')
+    const isCustom = !!assetId || (p.source === 'imported') || isEmbeddedCustomPropLike(p.url)
+    if (!isCustom) continue
+    const data = String(p.url || '')
+    if (!isEmbeddedCustomPropLike(data)) continue
+    const id = assetId || String(p.propId || p.id || makeCustomAssetId(p.name || 'image'))
+    if (byId.has(id)) continue
+    byId.set(id, {
+      assetId: id,
+      name: String(p.name || 'Image'),
+      mime: String(p.mime || getMimeFromDataUrl(data) || ''),
+      tags: Array.isArray(p.tags) && p.tags.length ? p.tags.slice() : ['imported', 'custom'],
+      data
+    })
+  }
+  return Array.from(byId.values())
+}
+function serializePlacedPropsForSave(list){
+  return (list || []).map(raw => {
+    const p = normalizePlacedPropObj(raw)
+    if (!p) return null
+    const out = {
+      id: p.id,
+      propId: p.propId,
+      assetId: p.assetId,
+      source: p.source,
+      mime: p.mime,
+      name: p.name,
+      x: p.x,
+      y: p.y,
+      w: p.w,
+      h: p.h,
+      baseW: p.baseW,
+      baseH: p.baseH,
+      scale: p.scale,
+      rot: p.rot,
+      flipX: p.flipX,
+      flipY: p.flipY,
+      shadowDisabled: p.shadowDisabled,
+      tags: Array.isArray(p.tags) ? p.tags.slice() : undefined,
+      navPaths: Array.isArray(p.navPaths) ? p.navPaths.slice() : undefined,
+      primaryPath: p.primaryPath,
+    }
+    if (!(p.assetId || p.source === 'imported' || isEmbeddedCustomPropLike(p.url))) {
+      out.url = p.url
+    }
+    return out
+  }).filter(Boolean)
+}
+function hydratePlacedPropsWithEmbeddedAssets(list, embeddedAssets){
+  const assetMap = new Map((embeddedAssets || []).map(asset => [String(asset.assetId), asset]))
+  return (list || []).map(raw => {
+    const p = normalizePlacedPropObj(raw)
+    if (!p) return null
+    const asset = p.assetId ? assetMap.get(String(p.assetId)) : null
+    if (asset && asset.data) {
+      p.url = String(asset.data)
+      p.mime = String(asset.mime || p.mime || getMimeFromDataUrl(asset.data) || '')
+      p.source = 'imported'
+      if (!p.propId) p.propId = String(asset.assetId)
+      attachAssetTaxonomy(p, { tags: asset.tags || p.tags || ['imported', 'custom'] })
+    } else {
+      attachAssetTaxonomy(p, { tags: p.tags || p.navPaths || [] })
+    }
+    return p
+  }).filter(p => p && p.url)
+}
 
 function rebuildPropsCatalog(){
-  propsCatalog = [...builtInPropsCatalog, ...importedPropsCatalog]
+  propsCatalog = [...builtInPropsCatalog, ...importedPropsCatalog].map(p => ({ ...p }))
+  const model = buildCatalogTagModel(propsCatalog)
+  propsCatalog = propsCatalog.map(p => attachAssetTaxonomy(p, { tags: p.tags || p.navPaths || [] }, model))
+  builtInPropsCatalog = propsCatalog.filter(p => p.source === 'bundled')
+  importedPropsCatalog = propsCatalog.filter(p => p.source === 'imported')
+  const validPaths = new Set(['all'])
+  for (const p of propsCatalog){ for (const path of (p.navPaths || [])) validPaths.add(String(path).toLowerCase()) }
+  if (!validPaths.has(String(assetBrowserActivePath || 'all').toLowerCase())) assetBrowserActivePath = 'all'
 }
 
 function clearPropObjectURLs(list = importedPropsCatalog){
@@ -1822,7 +2470,7 @@ async function loadBundledPropsManifest(force = false){
         const baseDir = manifestPath.replace(/[^/]+$/, "")
         const resolvedSrc = /^(https?:|data:|blob:|\/)/i.test(src) ? src : (baseDir + src)
         const meta = normalizePropManifestMeta(a)
-        merged.push({
+        merged.push(attachAssetTaxonomy({
           id: String(a.id || `${manifestPath}-builtin-${i}`),
           name: String(a.name || a.src).replace(/\.[^.]+$/, ""),
           url: resolvedSrc,
@@ -1833,7 +2481,7 @@ async function loadBundledPropsManifest(force = false){
           rot: Number(a.rot || 0) || 0,
           castShadow: (meta.shadowMode !== 'none') && (a.castShadow !== false),
           shadow: { mode: meta.shadowMode, profile: meta.shadowProfile }
-        })
+        }, { src, tags: a.tags || [] }))
       }
     } catch (err) {
       if (manifestPath === "assets/props/manifest.json") {
@@ -1884,16 +2532,18 @@ async function pickPropsFolder(){
 function renderPropsShelf(){
   if (!propsShelf) return
   propsShelf.innerHTML = ""
-  if (!Array.isArray(propsCatalog) || propsCatalog.length === 0){
+  renderAssetTree()
+  const visible = (Array.isArray(propsCatalog) ? propsCatalog : []).filter(assetMatchesBrowser)
+  if (!visible.length){
     propsShelf.classList.add("empty")
     const empty = document.createElement("div")
     empty.className = "propsEmpty"
-    empty.textContent = "No props loaded yet"
+    empty.textContent = (Array.isArray(propsCatalog) && propsCatalog.length) ? "No assets match this filter" : "No props loaded yet"
     propsShelf.appendChild(empty)
     return
   }
   propsShelf.classList.remove("empty")
-  for (const prop of propsCatalog){
+  for (const prop of visible){
     const tile = document.createElement("button")
     tile.type = "button"
     tile.className = "propTile"
@@ -1920,7 +2570,6 @@ function renderPropsShelf(){
     tile.appendChild(badge)
 
     tile.addEventListener("click", () => {
-      // Drag/drop is the primary prop placement flow; clicking a tile just focuses the Assets tab.
       setPanelTab("assets")
     })
 
@@ -1942,24 +2591,47 @@ function renderPropsShelf(){
     propsShelf.appendChild(tile)
   }
 }
-async function loadPropsFromFolderFiles(fileList){
-  const files = Array.from(fileList || [])
-    .filter(f => /\.(png|svg|webp|jpg|jpeg)$/i.test(f.name))
-    .sort((a,b) => a.name.localeCompare(b.name, undefined, { numeric:true, sensitivity:"base" }))
-    .slice(0, 500)
-  clearPropObjectURLs(importedPropsCatalog)
-  importedPropsCatalog = files.map((f, i) => ({
-    id: (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now() + i),
-    name: f.name.replace(/\.[^.]+$/, ""),
-    file: f,
-    url: URL.createObjectURL(f),
+function fileLooksLikeSupportedImage(file){
+  if (!file) return false
+  const nameOk = /\.(png|svg|webp|jpg|jpeg)$/i.test(String(file.name || ''))
+  const type = String(file.type || '').toLowerCase()
+  const typeOk = type.startsWith('image/') && /(png|svg\+xml|webp|jpeg|jpg)/.test(type)
+  return nameOk || typeOk
+}
+async function makeImportedPropFromFile(f, i=0){
+  const assetId = makeCustomAssetId(f?.name || `image-${i+1}`)
+  const dataUrl = await readFileAsDataURL(f)
+  const baseName = String(f?.name || `Image ${i+1}`).replace(/\.[^.]+$/, "") || `Image ${i+1}`
+  const filenameTag = slugifyAssetToken(baseName)
+  return attachAssetTaxonomy({
+    id: assetId,
+    assetId,
+    name: baseName,
+    url: dataUrl,
+    mime: String(f?.type || getMimeFromDataUrl(dataUrl) || ''),
     source: "imported"
-  }))
+  }, { tags: ['imported', 'custom', filenameTag] })
+}
+async function appendImportedPropsFromFiles(fileList){
+  const files = Array.from(fileList || [])
+    .filter(fileLooksLikeSupportedImage)
+    .sort((a,b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric:true, sensitivity:"base" }))
+    .slice(0, 500)
+  if (!files.length) return []
+  const fresh = (await Promise.all(files.map((f, i) => makeImportedPropFromFile(f, i)))).filter(Boolean)
+  importedPropsCatalog = [...importedPropsCatalog, ...fresh]
   rebuildPropsCatalog()
-  for (const p of importedPropsCatalog) getPropImage(p)
+  for (const p of fresh) getPropImage(p)
   armedPropId = null
+  assetBrowserActivePath = 'custom'
   renderPropsShelf()
   setPanelTab("assets")
+  return fresh
+}
+async function loadPropsFromFolderFiles(fileList){
+  clearPropObjectURLs(importedPropsCatalog)
+  importedPropsCatalog = []
+  await appendImportedPropsFromFiles(fileList)
 }
 
 function setDungeonFromObject(d){
@@ -2012,6 +2684,11 @@ function setDungeonFromObject(d){
     if (!Array.isArray(p.points)) p.points = []
     if (!Number.isFinite(Number(p.seq))) p.seq = nextEditSeq()
     if (!Number.isFinite(Number(p.width))) p.width = Number(dungeon.style?.corridorWidth || 48)
+    const normalizedPathShape = normalizePathShapeSettings(p, dungeon.style || {})
+    p.shapeMode = normalizedPathShape.shapeMode
+    p.smoothness = normalizedPathShape.smoothness
+    p.amplitude = normalizedPathShape.amplitude
+    p.frequency = normalizedPathShape.frequency
   }
   if (!dungeon.water || typeof dungeon.water !== "object") dungeon.water = { paths: [] }
   if (!Array.isArray(dungeon.water.paths)) dungeon.water.paths = []
@@ -2075,8 +2752,10 @@ function applyLoadedMapObject(obj){
 
   // Supports both wrapped format {dungeon, camera...} and plain dungeon object.
   const d = (obj.dungeon && typeof obj.dungeon === "object") ? obj.dungeon : obj
+  const embeddedAssets = Array.isArray(obj.embeddedAssets) ? obj.embeddedAssets : []
   setDungeonFromObject(d)
-  placedProps = Array.isArray(d.placedProps) ? d.placedProps.map(normalizePlacedPropObj).filter(p => p && p.url) : []
+  rebuildImportedPropsFromEmbeddedAssets(embeddedAssets)
+  placedProps = hydratePlacedPropsWithEmbeddedAssets(Array.isArray(d.placedProps) ? d.placedProps : [], embeddedAssets)
   placedTexts = Array.isArray(d.placedTexts) ? d.placedTexts.map(normalizeTextObj) : []
 
   
@@ -2111,7 +2790,7 @@ function getCompactBoundaryRegions(){
   }
 }
 
-function getSaveMapObject(){
+async function getSaveMapObject(){
   const compactRegions = getCompactBoundaryRegions()
   const dungeonData = {
     gridSize: dungeon.gridSize,
@@ -2136,18 +2815,21 @@ function getSaveMapObject(){
     }
   }
 
+  const serializedPlacedProps = serializePlacedPropsForSave(placedProps || [])
+  const embeddedAssets = collectUsedEmbeddedAssetsFromPlacedProps(placedProps || [])
   return {
     app: "DelvSketch",
     format: "dungeon-sketch-map",
-    version: 5,
+    version: 6,
     savedAt: new Date().toISOString(),
     camera: { x: camera.x, y: camera.y, zoom: camera.zoom },
-    dungeon: Object.assign(dungeonData, { placedProps: cloneJson(placedProps || []), placedTexts: cloneJson(placedTexts || []) })
+    embeddedAssets,
+    dungeon: Object.assign(dungeonData, { placedProps: serializedPlacedProps, placedTexts: cloneJson(placedTexts || []) })
   }
 }
 
-function saveMapToFile(){
-  const data = JSON.stringify(getSaveMapObject(), null, 2)
+async function saveMapToFile(){
+  const data = JSON.stringify(await getSaveMapObject(), null, 2)
   const blob = new Blob([data], { type: "application/json" })
   const a = document.createElement("a")
   const stamp = new Date().toISOString().replace(/[:.]/g, "-")
@@ -2187,7 +2869,7 @@ function openBugReport(){
     title: "[Bug]: ",
     body
   })
-  window.open(`https://github.com/EscaladeDev/DungeonSketch/issues/new?${params.toString()}`, "_blank", "noopener")
+  window.open(`https://github.com/EscaladeDev/DelvSketch/issues/new?${params.toString()}`, "_blank", "noopener")
 }
 
 async function loadMapFromFile(file){
@@ -2205,7 +2887,7 @@ function redo(){ if(!redoStack.length) return; undoStack.push(snapshot()); resto
 
 btnUndo.addEventListener("click", undo)
 btnRedo.addEventListener("click", redo)
-if (btnSaveMap) btnSaveMap.addEventListener("click", saveMapToFile)
+if (btnSaveMap) btnSaveMap.addEventListener("click", () => { saveMapToFile().catch(err => alert(`Could not save map: ${err.message || err}`)) })
 if (btnLoadMap) btnLoadMap.addEventListener("click", () => fileLoadMap && fileLoadMap.click())
 if (btnBugReport) btnBugReport.addEventListener("click", openBugReport)
 if (btnDrawerToggle) btnDrawerToggle.addEventListener("click", toggleDrawer)
@@ -2223,6 +2905,10 @@ if (propsFolderInput) propsFolderInput.addEventListener("change", async (e) => {
   e.target.value = ""
 })
 renderPropsShelf()
+if (propsSearchInput) propsSearchInput.addEventListener("input", () => {
+  assetBrowserSearchTerm = String(propsSearchInput.value || '')
+  renderPropsShelf()
+})
 queueBundledPropsLoad()
 if (fileLoadMap) fileLoadMap.addEventListener("change", async (e) => {
   const file = e.target.files && e.target.files[0]
@@ -3278,7 +3964,7 @@ normalizeEditSequences()
 function finishTool(){
   if (tool === "path" || tool === "poly") {
     if (draft && draft.type === "path" && draft.points.length>=2) {
-      commitDraftPath(draft.points)
+      commitDraftPath(draft.points, currentPathShapeSettings())
       draft = null
     }
   }
@@ -3349,6 +4035,7 @@ function simplifyFree(points, minDist=7){
 function subGrid(){ return dungeon.gridSize / (dungeon.subSnapDiv || 4) }
 function currentDrawMode(){ return underMode ? "subtract" : "add" }
 function currentCorridorWidth(){ return Math.max(12, Number(dungeon.style?.corridorWidth || 48) || 48) }
+function currentPathShapeSettings(){ return getDefaultPathShapeSettings(dungeon.style || {}) }
 function currentLineBaseWorldWidth(){
   const fallbackRipplePx = Math.max(1, Number(dungeon.style?.water?.ripplePx || 7) || 7)
   const fallbackPpu = Math.max(1, Number(compiledCache?.ppu || 4) || 4)
@@ -3424,7 +4111,19 @@ function drawLinesTo(targetCtx, cam){
 function commitDraftPath(points, extra = {}){
   if (!Array.isArray(points) || points.length < 2) return false
   pushUndo()
-  dungeon.paths.push({ id: crypto.randomUUID(), seq: nextEditSeq(), mode: currentDrawMode(), width: currentCorridorWidth(), points, ...extra })
+  const shapeSettings = normalizePathShapeSettings(extra, dungeon.style || {})
+  dungeon.paths.push({
+    id: crypto.randomUUID(),
+    seq: nextEditSeq(),
+    mode: currentDrawMode(),
+    width: currentCorridorWidth(),
+    points,
+    shapeMode: shapeSettings.shapeMode,
+    smoothness: shapeSettings.smoothness,
+    amplitude: shapeSettings.amplitude,
+    frequency: shapeSettings.frequency,
+    ...extra
+  })
   bumpInteriorVersion()
   return true
 }
@@ -3554,6 +4253,72 @@ function maybeHandlePropDrop(e){
     armedPropId = null
     setTool("select")
     renderPropsShelf()
+    try { canvas.focus && canvas.focus() } catch {}
+    return true
+  }
+  return false
+}
+
+function getImageFilesFromDataTransfer(dt){
+  if (!dt) return []
+  const out = []
+  try {
+    if (dt.items && dt.items.length){
+      for (const item of Array.from(dt.items)){
+        if (!item) continue
+        const kind = String(item.kind || '').toLowerCase()
+        const type = String(item.type || '').toLowerCase()
+        if (kind !== 'file') continue
+        if (type && !type.startsWith('image/')) continue
+        const file = item.getAsFile ? item.getAsFile() : null
+        if (file && fileLooksLikeSupportedImage(file)) out.push(file)
+      }
+    }
+  } catch {}
+  if (!out.length) {
+    try {
+      for (const file of Array.from(dt.files || [])){
+        if (fileLooksLikeSupportedImage(file)) out.push(file)
+      }
+    } catch {}
+  }
+  const seen = new Set()
+  return out.filter(file => {
+    const key = [file.name, file.size, file.lastModified, file.type].join('::')
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+function eventHasExternalImageFiles(e){
+  const dt = e && e.dataTransfer
+  if (!dt) return false
+  if (getImageFilesFromDataTransfer(dt).length) return true
+  try {
+    const types = Array.from(dt.types || []).map(v => String(v).toLowerCase())
+    return types.includes('files') || types.includes('application/x-moz-file')
+  } catch { return false }
+}
+async function maybeHandleExternalImageDrop(e){
+  if (!eventHasExternalImageFiles(e)) return false
+  if (typeof e.clientX === 'number' && typeof e.clientY === 'number' && !pointInsideCanvasClient(e.clientX, e.clientY)) return false
+  e.preventDefault()
+  e.stopPropagation()
+  const files = getImageFilesFromDataTransfer(e.dataTransfer)
+  if (!files.length) return false
+  const pos = getPointerPos(e)
+  const added = await appendImportedPropsFromFiles(files)
+  if (!added.length) return false
+  const gridStep = Math.max(10, Number(dungeon.gridSize) || 32)
+  let placedAny = false
+  added.forEach((prop, i) => {
+    const screen = { x: pos.x + i * Math.min(24, gridStep * 0.4), y: pos.y + i * Math.min(24, gridStep * 0.4) }
+    if (placePropAtScreenById(prop.id, screen)) placedAny = true
+  })
+  if (placedAny) {
+    dragPropId = null
+    armedPropId = null
+    setTool("select")
     try { canvas.focus && canvas.focus() } catch {}
     return true
   }
@@ -3695,26 +4460,51 @@ canvas.addEventListener("contextmenu", (e)=>{
   syncTextPanelVisibility()
   showPropContextMenuForProp(picked, e.clientX, e.clientY)
 })
+function shouldInterceptAnyDropEvent(e){
+  return !!getDraggedPropIdFromEvent(e) || eventHasExternalImageFiles(e)
+}
+function handleGlobalDragOver(e){
+  if (!shouldInterceptAnyDropEvent(e)) return
+  e.preventDefault()
+  try { if (e.dataTransfer) e.dataTransfer.dropEffect = "copy" } catch {}
+}
+async function handleGlobalDrop(e){
+  if (!shouldInterceptAnyDropEvent(e)) return
+  // Let the canvas-specific drop handler own drops that land on the canvas.
+  // The document capture-phase drop listener fires before the canvas listener,
+  // which can otherwise place the same prop twice for a single drag/drop.
+  if (typeof e.clientX === 'number' && typeof e.clientY === 'number' && pointInsideCanvasClient(e.clientX, e.clientY)) return
+  e.preventDefault()
+  if (await maybeHandleExternalImageDrop(e)) return
+  maybeHandlePropDrop(e)
+}
+
+document.addEventListener("dragenter", handleGlobalDragOver, true)
+document.addEventListener("dragover", handleGlobalDragOver, true)
+document.addEventListener("drop", handleGlobalDrop, true)
+
 canvas.addEventListener("dragover", (e)=>{
-  if (!getDraggedPropIdFromEvent(e)) return
+  if (!shouldInterceptAnyDropEvent(e)) return
   e.preventDefault()
   try { if (e.dataTransfer) e.dataTransfer.dropEffect = "copy" } catch {}
 })
-canvas.addEventListener("drop", (e)=>{
-  // Prevent the window-level fallback drop handler from also placing a prop.
+canvas.addEventListener("drop", async (e)=>{
+  // Prevent the document/window fallback drop handler from also placing a prop.
   e.stopPropagation()
+  if (await maybeHandleExternalImageDrop(e)) return
   maybeHandlePropDrop(e)
 })
 // Fallback: if the drag lands on a non-canvas overlay element, still place onto the canvas at cursor position.
 window.addEventListener("dragover", (e)=>{
-  if (!getDraggedPropIdFromEvent(e)) return
+  if (!shouldInterceptAnyDropEvent(e)) return
   if (typeof e.clientX === 'number' && typeof e.clientY === 'number' && pointInsideCanvasClient(e.clientX, e.clientY)) {
     e.preventDefault()
     try { if (e.dataTransfer) e.dataTransfer.dropEffect = "copy" } catch {}
   }
 })
-window.addEventListener("drop", (e)=>{
+window.addEventListener("drop", async (e)=>{
   if (e.defaultPrevented) return
+  if (await maybeHandleExternalImageDrop(e)) return
   maybeHandlePropDrop(e)
 })
 canvas.addEventListener("wheel", (e)=>{
@@ -4222,7 +5012,7 @@ canvas.addEventListener("pointerup", (e)=>{
   } else if (tool==="free"){
     if (freeDraw && freeDraw.length>=2){
       const pts = simplifyFree(freeDraw, 6)
-      commitDraftPath(pts)
+      commitDraftPath(pts, currentPathShapeSettings())
     }
     freeDraw=null
   } else if (tool==="line") {
@@ -4245,7 +5035,7 @@ canvas.addEventListener("pointerup", (e)=>{
   } else if (tool==="path"){
     if (isDoubleTap && draft && draft.type==="path"){
       if (draft.points.length>=2){
-        commitDraftPath(draft.points)
+        commitDraftPath(draft.points, currentPathShapeSettings())
       }
       draft=null
     } else {
@@ -4374,16 +5164,31 @@ function drawDraftOverlay(){
     ctx.stroke()
 
     if (draft.points.length>=2){
+      const previewGeom = getPathRenderGeometry(draft.points, currentPathShapeSettings(), { width: currentCorridorWidth(), seed: "draft-path", preview: true, pointBudget: 120 })
       ctx.setLineDash([])
-      ctx.strokeStyle = fill
-      ctx.lineWidth = currentCorridorWidth() * camera.zoom
-      ctx.lineCap = "round"; ctx.lineJoin = "round"
-      ctx.beginPath()
-      draft.points.forEach((p,i)=>{
-        const s = camera.worldToScreen(p)
-        i===0 ? ctx.moveTo(s.x,s.y) : ctx.lineTo(s.x,s.y)
-      })
-      ctx.stroke()
+      if (previewGeom.kind === "polygon") {
+        ctx.fillStyle = fill
+        ctx.strokeStyle = stroke
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        previewGeom.points.forEach((p,i)=>{
+          const s = camera.worldToScreen(p)
+          i===0 ? ctx.moveTo(s.x,s.y) : ctx.lineTo(s.x,s.y)
+        })
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
+      } else {
+        ctx.strokeStyle = fill
+        ctx.lineWidth = currentCorridorWidth() * camera.zoom
+        ctx.lineCap = "round"; ctx.lineJoin = "round"
+        ctx.beginPath()
+        previewGeom.points.forEach((p,i)=>{
+          const s = camera.worldToScreen(p)
+          i===0 ? ctx.moveTo(s.x,s.y) : ctx.lineTo(s.x,s.y)
+        })
+        ctx.stroke()
+      }
     }
   }
 
@@ -4420,26 +5225,42 @@ function drawDraftOverlay(){
 
   // Free draw preview: translucent corridor stroke
   if (tool!=="water" && freeDraw && freeDraw.length>1){
+    const previewGeom = getPathRenderGeometry(freeDraw, currentPathShapeSettings(), { width: currentCorridorWidth(), seed: "draft-free", preview: true, pointBudget: 120 })
+    const previewLine = previewGeom.centerline || previewGeom.points
     ctx.setLineDash([6,6])
     ctx.strokeStyle = stroke
     ctx.lineWidth = 1
     ctx.beginPath()
-    freeDraw.forEach((p,i)=>{
+    previewLine.forEach((p,i)=>{
       const s = camera.worldToScreen(p)
       i===0 ? ctx.moveTo(s.x,s.y) : ctx.lineTo(s.x,s.y)
     })
     ctx.stroke()
 
     ctx.setLineDash([])
-    ctx.strokeStyle = fill
-    ctx.lineWidth = currentCorridorWidth() * camera.zoom
-    ctx.lineCap = "round"; ctx.lineJoin = "round"
-    ctx.beginPath()
-    freeDraw.forEach((p,i)=>{
-      const s = camera.worldToScreen(p)
-      i===0 ? ctx.moveTo(s.x,s.y) : ctx.lineTo(s.x,s.y)
-    })
-    ctx.stroke()
+    if (previewGeom.kind === "polygon") {
+      ctx.fillStyle = fill
+      ctx.strokeStyle = stroke
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      previewGeom.points.forEach((p,i)=>{
+        const s = camera.worldToScreen(p)
+        i===0 ? ctx.moveTo(s.x,s.y) : ctx.lineTo(s.x,s.y)
+      })
+      ctx.closePath()
+      ctx.fill()
+      ctx.stroke()
+    } else {
+      ctx.strokeStyle = fill
+      ctx.lineWidth = currentCorridorWidth() * camera.zoom
+      ctx.lineCap = "round"; ctx.lineJoin = "round"
+      ctx.beginPath()
+      previewGeom.points.forEach((p,i)=>{
+        const s = camera.worldToScreen(p)
+        i===0 ? ctx.moveTo(s.x,s.y) : ctx.lineTo(s.x,s.y)
+      })
+      ctx.stroke()
+    }
   }
 
 
@@ -4506,15 +5327,33 @@ function drawDraftOverlay(){
       ctx.fill()
       if (preview && (preview.isCircle || Math.abs(preview.sweep) > 1e-3)){
         const pts = sampleArcPoints(preview.center, preview.radius, preview.startAngle, preview.endAngle, { closeLoop: preview.isCircle })
+        const arcShapeSettings = currentPathShapeSettings()
+        const previewGeom = getPathRenderGeometry(pts, arcShapeSettings, {
+          width: currentCorridorWidth(),
+          preview: true,
+          seed: `arc-preview:${preview.center.x.toFixed(2)},${preview.center.y.toFixed(2)}:${preview.radius.toFixed(2)}:${preview.startAngle.toFixed(3)}:${preview.endAngle.toFixed(3)}:${preview.isCircle ? 1 : 0}`,
+          pointBudget: 120
+        })
         ctx.strokeStyle = fill
         ctx.lineWidth = currentCorridorWidth() * camera.zoom
         ctx.lineCap = "round"; ctx.lineJoin = "round"
-        ctx.beginPath()
-        pts.forEach((p,i)=>{
-          const s = camera.worldToScreen(p)
-          i===0 ? ctx.moveTo(s.x,s.y) : ctx.lineTo(s.x,s.y)
-        })
-        ctx.stroke()
+        if (previewGeom.kind === "polygon" && previewGeom.points.length >= 3) {
+          ctx.beginPath()
+          previewGeom.points.forEach((p,i)=>{
+            const s = camera.worldToScreen(p)
+            i===0 ? ctx.moveTo(s.x,s.y) : ctx.lineTo(s.x,s.y)
+          })
+          ctx.closePath()
+          ctx.fillStyle = fill
+          ctx.fill()
+        } else {
+          ctx.beginPath()
+          previewGeom.points.forEach((p,i)=>{
+            const s = camera.worldToScreen(p)
+            i===0 ? ctx.moveTo(s.x,s.y) : ctx.lineTo(s.x,s.y)
+          })
+          ctx.stroke()
+        }
 
         ctx.strokeStyle = stroke
         ctx.lineWidth = 1.5

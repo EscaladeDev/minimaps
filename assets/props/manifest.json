@@ -5,77 +5,148 @@
       "name": "Door 1x",
       "src": "door-span.svg",
       "gridW": 1.0,
-      "gridH": 0.42
+      "gridH": 0.42,
+      "tags": [
+        "structure",
+        "doors"
+      ]
     },
     {
       "id": "door-2",
       "name": "Door 2x",
       "src": "door-span-2.svg",
       "gridW": 2.0,
-      "gridH": 0.42
+      "gridH": 0.42,
+      "tags": [
+        "structure",
+        "doors"
+      ]
     },
     {
       "id": "door-3",
       "name": "Door 3x",
       "src": "door-span-3.svg",
       "gridW": 3.0,
-      "gridH": 0.42
+      "gridH": 0.42,
+      "tags": [
+        "structure",
+        "doors"
+      ]
     },
     {
-      "id": "door-locked-1",
-      "name": "Locked Door 1x",
-      "src": "door-locked-span.svg",
+      "id": "door-metal-span-1",
+      "name": "Metal Door 1x",
+      "src": "door-metal-span-1.svg",
       "gridW": 1.0,
-      "gridH": 0.42
+      "gridH": 0.42,
+      "tags": [
+        "structure",
+        "doors",
+        "metal"
+      ]
     },
     {
-      "id": "door-locked-2",
-      "name": "Locked Door 2x",
-      "src": "door-locked-span-2.svg",
+      "id": "door-metal-span-2",
+      "name": "Metal Door 2x",
+      "src": "door-metal-span-2.svg",
       "gridW": 2.0,
-      "gridH": 0.42
+      "gridH": 0.42,
+      "tags": [
+        "structure",
+        "doors",
+        "locked"
+      ]
     },
     {
-      "id": "door-locked-3",
-      "name": "Locked Door 3x",
-      "src": "door-locked-span-3.svg",
+      "id": "door-metal-span-3",
+      "name": "Metal Door 3x",
+      "src": "door-metal-span-3.svg",
       "gridW": 3.0,
-      "gridH": 0.42
+      "gridH": 0.42,
+      "tags": [
+        "structure",
+        "doors",
+        "locked"
+      ]
     },
     {
-      "id": "door-arch",
-      "name": "Arch Door",
-      "src": "door-arch.svg",
-      "gridW": 0.95,
-      "gridH": 0.95
+      "id": "lock-keyhole",
+      "name": "Lock Keyhole",
+      "src": "lock-keyhole.svg",
+      "gridW": 0.5,
+      "gridH": 0.5,
+      "category": "floor",
+      "shadow": {
+        "mode": "none"
+      },
+      "tags": [
+        "lock"
+      ]
+    },
+     {
+      "id": "lock-combination",
+      "name": "Lock Combination",
+      "src": "lock-combination.svg",
+      "gridW": 0.5,
+      "gridH": 0.5,
+      "category": "floor",
+      "shadow": {
+        "mode": "none"
+      },
+      "tags": [
+        "lock"      
+      ]
+    },
+    {
+      "id": "bedroll",
+      "name": "Bedroll",
+      "src": "bedroll.svg",
+      "gridW": 1.6,
+      "gridH": 1.0,
+      "tags": [
+        "interior",
+        "furniture",
+        "sleeping",
+        "beds",
+        "camp"
+      ]
     },
     {
       "id": "bed",
       "name": "Bed",
       "src": "bed.svg",
       "gridW": 1.6,
-      "gridH": 1.0
+      "gridH": 1.0,
+      "tags": [
+        "interior",
+        "furniture",
+        "sleeping",
+        "beds"
+      ]
     },
     {
       "id": "table",
       "name": "Table",
       "src": "table.svg",
       "gridW": 1.6,
-      "gridH": 1.0
+      "gridH": 1.0,
+      "tags": [
+        "interior",
+        "furniture",
+        "tables"
+      ]
     },
     {
-      "id": "chest-1",
-      "name": "Chest 1",
-      "src": "chest-1.svg",
+      "id": "chest",
+      "name": "Chest",
+      "src": "chest.svg",
       "gridW": 1.0,
-      "gridH": 0.8
-    },
-    {
-      "id": "chest-2",
-      "name": "Chest 2",
-      "src": "chest-2.svg",
-      "gridW": 1.0,
-      "gridH": 0.8
+      "gridH": 0.8,
+      "tags": [
+        "interior",
+        "storage",
+        "chests"
+      ]
     },
     {
       "id": "brazier",
@@ -86,61 +157,113 @@
       "category": "floor",
       "shadow": {
         "mode": "none"
-      }
+      },
+      "tags": [
+        "lighting",
+        "fire",
+        "braziers",
+        "floor"
+      ]
+    },
+    {
+      "id": "campfire",
+      "name": "Campfire",
+      "src": "campfire.svg",
+      "gridW": 1.1,
+      "gridH": 1.1,
+      "tags": [
+        "lighting",
+        "fire",
+        "camp"
+      ]
     },
     {
       "id": "stairs",
       "name": "Stairs",
       "src": "stairs.svg",
-      "gridW": 1.5,
+      "gridW": 1.0,
       "gridH": 1.0,
       "category": "floor",
       "shadow": {
         "mode": "none"
-      }
+      },
+      "tags": [
+        "structure",
+        "stairs",
+        "floor"
+      ]
     },
     {
       "id": "column",
       "name": "Column",
       "src": "column.svg",
       "gridW": 0.8,
-      "gridH": 0.8
+      "gridH": 0.8,
+      "tags": [
+        "structure",
+        "columns"
+      ]
     },
     {
-      "id": "grate-square",
+      "id": "sewer-grate-square",
       "name": "Sewer Grate Square",
-      "src": "grate-square.svg",
+      "src": "sewer-grate-square.svg",
       "gridW": 0.9,
       "gridH": 0.9,
       "category": "floor",
       "shadow": {
         "mode": "none"
-      }
+      },
+      "tags": [
+        "details",
+        "floor",
+        "drains",
+        "grates",
+        "metal"
+      ]
     },
     {
-      "id": "grate-round",
+      "id": "sewer-grate-round",
       "name": "Sewer Grate Round",
-      "src": "grate-round.svg",
+      "src": "sewer-grate-round.svg",
       "gridW": 0.9,
       "gridH": 0.9,
       "category": "floor",
       "shadow": {
         "mode": "none"
-      }
+      },
+      "tags": [
+        "details",
+        "floor",
+        "drains",
+        "grates",
+        "metal"
+      ]
     },
     {
       "id": "crate",
       "name": "Crate",
       "src": "crate.svg",
       "gridW": 0.8,
-      "gridH": 0.8
+      "gridH": 0.8,
+      "tags": [
+        "interior",
+        "storage",
+        "crates"
+      ]
     },
     {
-      "id": "heavy-crate",
-      "name": "Heavy Crate",
-      "src": "heavy-crate.svg",
+      "id": "metal-crate",
+      "name": "Metal Crate",
+      "src": "metal-crate.svg",
       "gridW": 0.8,
-      "gridH": 0.8
+      "gridH": 0.8,
+      "tags": [
+        "interior",
+        "storage",
+        "crates",
+        "metal"
+      ]
     },
     {
       "id": "cobweb-1",
@@ -151,7 +274,11 @@
       "category": "floor",
       "shadow": {
         "mode": "none"
-      }
+      },
+      "tags": [
+        "details",
+        "cobwebs"
+      ]
     },
     {
       "id": "cobweb-2",
@@ -162,7 +289,284 @@
       "category": "floor",
       "shadow": {
         "mode": "none"
-      }
+      },
+      "tags": [
+        "details",
+        "cobwebs"      
+      ]
+    },
+    {
+      "id": "cobweb-3",
+      "name": "Cobweb 3",
+      "src": "cobweb-3.svg",
+      "gridW": 0.9,
+      "gridH": 0.9,
+      "category": "floor",
+      "shadow": {
+        "mode": "none"
+      },
+      "tags": [
+        "details",
+        "cobwebs"
+      ]
+    },
+    {
+      "id": "cobweb-4",
+      "name": "Cobweb 4",
+      "src": "cobweb-4.svg",
+      "gridW": 0.9,
+      "gridH": 0.9,
+      "category": "floor",
+      "shadow": {
+        "mode": "none"
+      },
+      "tags": [
+        "details",
+        "cobwebs"
+      ]
+    },
+    {
+      "id": "door-1-bw",
+      "name": "Door 1x BW",
+      "src": "door-span-bw.svg",
+      "gridW": 1.0,
+      "gridH": 0.42,
+      "tags": [
+        "structure",
+        "doors",
+        "black-white"
+      ]
+    },
+    {
+      "id": "door-2-bw",
+      "name": "Door 2x BW",
+      "src": "door-span-2-bw.svg",
+      "gridW": 2.0,
+      "gridH": 0.42,
+      "tags": [
+        "structure",
+        "doors",
+        "black-white"
+      ]
+    },
+    {
+      "id": "door-3-bw",
+      "name": "Door 3x BW",
+      "src": "door-span-3-bw.svg",
+      "gridW": 3.0,
+      "gridH": 0.42,
+      "tags": [
+        "structure",
+        "doors",
+        "black-white"
+      ]
+    },
+    {
+      "id": "door-locked-1-bw",
+      "name": "Locked Door 1x BW",
+      "src": "door-locked-span-bw.svg",
+      "gridW": 1.0,
+      "gridH": 0.42,
+      "tags": [
+        "structure",
+        "doors",
+        "locked",
+        "black-white"
+      ]
+    },
+    {
+      "id": "door-locked-2-bw",
+      "name": "Locked Door 2x BW",
+      "src": "door-locked-span-2-bw.svg",
+      "gridW": 2.0,
+      "gridH": 0.42,
+      "tags": [
+        "structure",
+        "doors",
+        "locked",
+        "black-white"
+      ]
+    },
+    {
+      "id": "door-locked-3-bw",
+      "name": "Locked Door 3x BW",
+      "src": "door-locked-span-3-bw.svg",
+      "gridW": 3.0,
+      "gridH": 0.42,
+      "tags": [
+        "structure",
+        "doors",
+        "locked",
+        "black-white"
+      ]
+    },
+    {
+      "id": "bed-bw",
+      "name": "Bed BW",
+      "src": "bed-bw.svg",
+      "gridW": 1.6,
+      "gridH": 1.0,
+      "tags": [
+        "interior",
+        "furniture",
+        "sleeping",
+        "beds",
+        "black-white"
+      ]
+    },
+    {
+      "id": "table-bw",
+      "name": "Table BW",
+      "src": "table-bw.svg",
+      "gridW": 1.6,
+      "gridH": 1.0,
+      "tags": [
+        "interior",
+        "furniture",
+        "tables",
+        "black-white"
+      ]
+    },
+    {
+      "id": "chest-bw",
+      "name": "Chest BW",
+      "src": "chest-bw.svg",
+      "gridW": 1.0,
+      "gridH": 0.8,
+      "tags": [
+        "interior",
+        "storage",
+        "chests",
+        "black-white"
+      ]
+    },
+    {
+      "id": "stairs-bw",
+      "name": "Stairs BW",
+      "src": "stairs-bw.svg",
+      "gridW": 1.0,
+      "gridH": 1.0,
+      "category": "floor",
+      "shadow": {
+        "mode": "none"
+      },
+      "tags": [
+        "structure",
+        "stairs",
+        "floor",
+        "black-white"
+      ]
+    },
+    {
+      "id": "column-bw",
+      "name": "Column BW",
+      "src": "column-bw.svg",
+      "gridW": 0.8,
+      "gridH": 0.8,
+      "tags": [
+        "structure",
+        "columns",
+        "black-white"
+      ]
+    },
+    {
+      "id": "sewer-grate-square-bw",
+      "name": "Sewer Grate Square BW",
+      "src": "sewer-grate-square-bw.svg",
+      "gridW": 0.9,
+      "gridH": 0.9,
+      "category": "floor",
+      "shadow": {
+        "mode": "none"
+      },
+      "tags": [
+        "details",
+        "floor",
+        "drains",
+        "grates",
+        "metal",
+        "black-white"
+      ]
+    },
+    {
+      "id": "sewer-grate-round-bw",
+      "name": "Sewer Grate Round BW",
+      "src": "sewer-grate-round-bw.svg",
+      "gridW": 0.9,
+      "gridH": 0.9,
+      "category": "floor",
+      "shadow": {
+        "mode": "none"
+      },
+      "tags": [
+        "details",
+        "floor",
+        "drains",
+        "grates",
+        "metal",
+        "black-white"
+      ]
+    },
+    {
+      "id": "crate-bw",
+      "name": "Crate BW",
+      "src": "crate-bw.svg",
+      "gridW": 0.8,
+      "gridH": 0.8,
+      "tags": [
+        "interior",
+        "storage",
+        "crates",
+        "black-white"
+      ]
+    },
+    {
+      "id": "metal-crate-bw",
+      "name": "Metal Crate BW",
+      "src": "metal-crate-bw.svg",
+      "gridW": 0.8,
+      "gridH": 0.8,
+      "tags": [
+        "interior",
+        "storage",
+        "crates",
+        "metal",
+        "black-white"
+      ]
+    },
+    {
+      "id": "cobweb-1-bw",
+      "name": "Cobweb 1 BW",
+      "src": "cobweb-1-bw.svg",
+      "gridW": 0.9,
+      "gridH": 0.9,
+      "category": "floor",
+      "shadow": {
+        "mode": "none"
+      },
+      "tags": [
+        "details",
+        "cobwebs",
+        "floor",
+        "black-white"
+      ]
+    },
+    {
+      "id": "cobweb-2-bw",
+      "name": "Cobweb 2 BW",
+      "src": "cobweb-2-bw.svg",
+      "gridW": 0.9,
+      "gridH": 0.9,
+      "category": "floor",
+      "shadow": {
+        "mode": "none"
+      },
+      "tags": [
+        "details",
+        "cobwebs",
+        "floor",
+        "black-white"
+      ]
     }
   ]
 }

@@ -38,6 +38,25 @@
               <span>Corridor width <strong id="corridorWidthOut">48</strong></span>
               <input id="corridorWidth" type="range" min="12" max="96" step="4" value="48">
             </label>
+            <label id="pathShapeRow" class="toolInlineRange hidden" hidden>
+              <span>Path shape</span>
+              <select id="pathShapeMode">
+                <option value="smooth">Smooth</option>
+                <option value="jagged">Jagged</option>
+              </select>
+            </label>
+            <label id="pathSmoothnessRow" class="toolInlineRange hidden" hidden>
+              <span>Smoothness <strong id="pathSmoothnessOut">0.60</strong></span>
+              <input id="pathSmoothness" type="range" min="0" max="1" step="0.05" value="0.6">
+            </label>
+            <label id="pathAmplitudeRow" class="toolInlineRange hidden" hidden>
+              <span>Amplitude <strong id="pathAmplitudeOut">1.00</strong></span>
+              <input id="pathAmplitude" type="range" min="0" max="3.5" step="0.05" value="1.45">
+            </label>
+            <label id="pathFrequencyRow" class="toolInlineRange hidden" hidden>
+              <span>Frequency <strong id="pathFrequencyOut">1.00</strong></span>
+              <input id="pathFrequency" type="range" min="0.35" max="2.8" step="0.05" value="1.15">
+            </label>
             <label id="polyToolRow" class="toolInlineRange hidden" hidden>
               <span>Polygon sides <strong id="polySidesOut">6</strong></span>
               <input id="polySides" type="range" min="3" max="12" step="1" value="6">
@@ -75,7 +94,7 @@
     </div>
 
     <div class="donateBanner" role="complementary" aria-label="Developer support">
-      <a class="donateBannerLink" href="https://donate.stripe.com/4gM4gBcmO1nG9PA5zF1B601" target="_blank" rel="noopener noreferrer">Support Development</a>
+      <a class="donateBannerLink" href="https://donate.stripe.com/cNi5kF9aCd6oe5Q0fl1B603" target="_blank" rel="noopener noreferrer">Support Development</a>
     </div>
 
     <aside id="leftDrawer" class="leftDrawer" aria-label="Style, render, and assets">
@@ -244,8 +263,24 @@
                       <input id="waterOutlineEnabled" type="checkbox" checked>
                     </label>
                     <label class="inline">
-                      <span>Water ripples</span>
+                      <span>Glowing pool detail</span>
                       <input id="waterRipplesEnabled" type="checkbox" checked>
+                    </label>
+                    <label>
+                      Cell size
+                      <input id="waterCellSize" type="range" min="0.7" max="1.8" step="0.01" value="1.32">
+                    </label>
+                    <label>
+                      Seam brightness
+                      <input id="waterSeamBright" type="range" min="0.35" max="1.8" step="0.01" value="1.34">
+                    </label>
+                    <label>
+                      Center glow
+                      <input id="waterCenterGlow" type="range" min="0.3" max="1.8" step="0.01" value="1.22">
+                    </label>
+                    <label>
+                      Edge depth
+                      <input id="waterDepthStrength" type="range" min="0.2" max="1.8" step="0.01" value="1.12">
                     </label>
                   </div>
                 </details>
@@ -355,7 +390,11 @@
                                     <button id="btnPropsClear" type="button" title="Clear imported prop previews">Clear Imported</button>
                                   </div>
                                   <input id="propsFolderInput" type="file" accept=".png,.svg,.webp,.jpg,.jpeg,image/*" webkitdirectory multiple hidden>
-                                  <div class="propsHint">Prototype shelf for imported prop PNGs (doors, beds, fireplaces, etc.). Placement tools can hook into this next.</div>
+                                  <div class="propsHint">Asset library groups items by inferred tags and optional tag paths. Add tags only when you want to enrich browse behavior.</div>
+                                  <div class="assetBrowserControls">
+                                    <input id="propsSearchInput" class="assetSearchInput" type="search" placeholder="Search assets, tags, or ids">
+                                    <div id="propsTree" class="propsTree" aria-label="Asset categories"></div>
+                                  </div>
                                   <div id="propsShelf" class="propsShelf empty" aria-live="polite">
                                     <div class="propsEmpty">No props loaded yet</div>
                                   </div>

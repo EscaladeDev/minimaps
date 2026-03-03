@@ -19,9 +19,9 @@ This app is currently in active alpha testing.
 
 Features and behavior may change, and map files may not be compatible with future versions.
 
-Support
+## How to support development?
 
-If you find the tool useful, there is an in-app “Tip the developer” button.
+If you find the tool useful, there is an in-app “Support Development” button.
 
 ## License
 

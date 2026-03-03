@@ -34,21 +34,21 @@
       ]
     },
     {
-      "id": "door-locked-1",
-      "name": "Locked Door 1x",
-      "src": "door-locked-span.svg",
+      "id": "door-metal-span-1",
+      "name": "Metal Door 1x",
+      "src": "door-metal-span-1.svg",
       "gridW": 1.0,
       "gridH": 0.42,
       "tags": [
         "structure",
         "doors",
-        "locked"
+        "metal"
       ]
     },
     {
-      "id": "door-locked-2",
-      "name": "Locked Door 2x",
-      "src": "door-locked-span-2.svg",
+      "id": "door-metal-span-2",
+      "name": "Metal Door 2x",
+      "src": "door-metal-span-2.svg",
       "gridW": 2.0,
       "gridH": 0.42,
       "tags": [
@@ -58,9 +58,9 @@
       ]
     },
     {
-      "id": "door-locked-3",
-      "name": "Locked Door 3x",
-      "src": "door-locked-span-3.svg",
+      "id": "door-metal-span-3",
+      "name": "Metal Door 3x",
+      "src": "door-metal-span-3.svg",
       "gridW": 3.0,
       "gridH": 0.42,
       "tags": [
@@ -70,15 +70,31 @@
       ]
     },
     {
-      "id": "door-arch",
-      "name": "Arch Door",
-      "src": "door-arch.svg",
-      "gridW": 0.95,
-      "gridH": 0.95,
+      "id": "lock-keyhole",
+      "name": "Lock Keyhole",
+      "src": "lock-keyhole.svg",
+      "gridW": 0.5,
+      "gridH": 0.5,
+      "category": "floor",
+      "shadow": {
+        "mode": "none"
+      },
       "tags": [
-        "structure",
-        "doors",
-        "arch"
+        "lock"
+      ]
+    },
+     {
+      "id": "lock-combination",
+      "name": "Lock Combination",
+      "src": "lock-combination.svg",
+      "gridW": 0.5,
+      "gridH": 0.5,
+      "category": "floor",
+      "shadow": {
+        "mode": "none"
+      },
+      "tags": [
+        "lock"      
       ]
     },
     {

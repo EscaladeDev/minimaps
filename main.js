@@ -3,6 +3,9 @@ import { Camera } from "./canvas/camera.js"
 import { snapHard, snapSoft } from "./utils/snap.js"
 import { dist, norm, rotate } from "./utils/math.js"
 import { compileWorldCache, drawCompiledBase, drawCompiledExteriorGrid } from "./canvas/render.js"
+import { createLiveLayerCache, drawLiveLayer, ensureLiveLayer, invalidateLiveLayer, resetLiveLayerSize } from "./canvas/live-layer-cache.js"
+import { createTextMetricsCache, getCachedTextScreenBounds, invalidateTextMetricsCache, prepareTextMetricsFrame } from "./canvas/text-metrics-cache.js"
+import { createPropRenderRuntime, drawPlacedPropsTo } from "./canvas/prop-render.js"
 import { PATH_SHAPE_MODES, getDefaultPathShapeSettings, normalizePathShapeSettings, getPathRenderGeometry } from "./utils/path-styles.js"
 
 const canvas = document.querySelector("canvas")
@@ -20,9 +23,13 @@ let renderQueued = false
 let renderDirty = true
 let lastRenderCameraSig = ""
 let lastTextOverlaySig = ""
-let lineLayerCanvas = null
-let lineLayerCtx = null
-let lastLineLayerSizeKey = ""
+const lineLayerCache = createLiveLayerCache({ alpha:true })
+const textLayerCache = createLiveLayerCache({ alpha:true })
+const textMetricsCache = createTextMetricsCache()
+const propRenderRuntime = createPropRenderRuntime()
+let placedTextsVersion = 1
+let lastSortedLineVersion = -1
+let sortedLineOps = []
 
 function queueRender(){
   if (renderQueued) return
@@ -35,7 +42,6 @@ function markRenderDirty(){
 }
 function markCompiledDirty(){
   compiledSig = ""
-  compiledCache = null
   markRenderDirty()
 }
 function activeInteractionInProgress(){
@@ -44,8 +50,11 @@ function activeInteractionInProgress(){
     shapeDrag || propTransformDrag || textDrag || eraseStroke || (pointers && pointers.size > 0)
   )
 }
-function currentCameraSignature(){
-  return [W,H,Number(camera.x||0).toFixed(3),Number(camera.y||0).toFixed(3),Number(camera.zoom||1).toFixed(4)].join('|')
+function currentCameraSignature(cam = camera, width = W, height = H){
+  return [width,height,Number(cam?.x||0).toFixed(3),Number(cam?.y||0).toFixed(3),Number(cam?.zoom||1).toFixed(4)].join('|')
+}
+function currentLiveLayerSignature(cam, width, height){
+  return currentCameraSignature(cam, width, height)
 }
 function maybeUpdateTextEditorOverlay(){
   if (!textEditorState) return
@@ -65,7 +74,8 @@ function ensureCompileVersions(){
 }
 function bumpInteriorVersion(){ ensureCompileVersions(); dungeon.__versions.interior += 1; markRenderDirty() }
 function bumpWaterVersion(){ ensureCompileVersions(); dungeon.__versions.water += 1; markRenderDirty() }
-function bumpLineVersion(){ ensureCompileVersions(); dungeon.__versions.lines += 1; markRenderDirty() }
+function bumpLineVersion(){ ensureCompileVersions(); dungeon.__versions.lines += 1; markRenderDirty(); invalidateLiveLayer(lineLayerCache); lastSortedLineVersion = -1 }
+function bumpTextVersion(){ placedTextsVersion += 1; markRenderDirty(); invalidateLiveLayer(textLayerCache); invalidateTextMetricsCache(textMetricsCache); lastTextOverlaySig = "" }
 ensureCompileVersions()
 
 // Global edit ordering across ALL tool types (rectangle/path/free/polygon).
@@ -492,6 +502,16 @@ function ensureGlobalPropShadowToggleUi(){
 }
 
 const PATCH_NOTES = [
+    {
+    version: "v0.17",
+    date: "March 8, 2026",
+    groups: [
+      { title: "Changed", items: [
+        "Compartmentalized multiple system functions.",
+        "Significant performance improvements."
+      ] },
+    ]
+  },
   {
     version: "v0.16",
     date: "March 3, 2026",
@@ -515,20 +535,6 @@ const PATCH_NOTES = [
       ] },
       { title: "Fixed", items: [
         "Optimized arc tool interactions."
-      ] }
-    ]
-  },
-  {
-    version: "v0.14",
-    date: "February 26, 2026",
-    groups: [
-      { title: "Added", items: [
-        "Gridline adjustments.",
-        "Visibility of the grid before walls are placed."
-      ] },
-      { title: "Fixed", items: [
-        "Sewer grate default shadow behavior and related shadow preset regressions.",
-        "PDF export handling for square print sizing below 1 inch."
       ] }
     ]
   }
@@ -842,7 +848,7 @@ if (waterDepthStrength) waterDepthStrength.addEventListener("input", () => { dun
 if (lineDashed) lineDashed.addEventListener("change", () => { if (!dungeon.style.lines || typeof dungeon.style.lines !== "object") dungeon.style.lines = {}; dungeon.style.lines.dashed = !!lineDashed.checked })
 
 if (textContentInput) textContentInput.addEventListener('input', () => { const t = getSelectedText(); if (t) { t.text = textContentInput.value; if (textEditorState && textEditorState.id === t.id && textCanvasEditor && document.activeElement !== textCanvasEditor) textCanvasEditor.value = t.text; if (textEditorState && textEditorState.id === t.id) { lastTextOverlaySig = ""; positionTextEditorOverlayForText(t) } markRenderDirty() } })
-if (textFontFamily) textFontFamily.addEventListener('change', async () => { const t = getSelectedText(); if (!t) return; const nextFont = textFontFamily.value; if (!hasFontOption(nextFont) && nextFont) { await loadGoogleFontFamily(nextFont) } t.fontFamily = nextFont; if (googleFontFamilyInput && !['Minecraft Five','system-ui','serif','monospace'].includes(nextFont)) googleFontFamilyInput.value = nextFont; if (textEditorState && textEditorState.id === t.id) { lastTextOverlaySig = ""; positionTextEditorOverlayForText(t) } markRenderDirty() })
+if (textFontFamily) textFontFamily.addEventListener('change', async () => { const t = getSelectedText(); if (!t) return; const nextFont = textFontFamily.value; if (!hasFontOption(nextFont) && nextFont) { await loadGoogleFontFamily(nextFont) } t.fontFamily = nextFont; if (googleFontFamilyInput && !['Minecraft Five','system-ui','serif','monospace'].includes(nextFont)) googleFontFamilyInput.value = nextFont; if (textEditorState && textEditorState.id === t.id) { lastTextOverlaySig = ""; positionTextEditorOverlayForText(t) } bumpTextVersion() })
 if (textFontSize) textFontSize.addEventListener('input', () => { const t = getSelectedText(); const v = Math.max(8, Math.min(144, Math.round(Number(textFontSize.value)||20))); if (t) { t.fontSize = v; if (textEditorState && textEditorState.id === t.id) { lastTextOverlaySig = ""; positionTextEditorOverlayForText(t) } markRenderDirty() } if (textFontSizeOut) textFontSizeOut.textContent = String(v) })
 if (textColorInput) textColorInput.addEventListener('input', () => { const t = getSelectedText(); if (!t) return; t.color = textColorInput.value || '#1f2933'; if (textCanvasEditor && textEditorState && textEditorState.id === t.id) textCanvasEditor.style.color = t.color; markRenderDirty() })
 if (btnLoadGoogleFont) btnLoadGoogleFont.addEventListener('click', async () => { const family = (googleFontFamilyInput && googleFontFamilyInput.value) || ''; if (!normalizeGoogleFontFamilyName(family)) return; if (!textEditorState) pushUndo(); await applyGoogleFontToSelectedText(family) })
@@ -882,6 +888,9 @@ function restore(s){
   setDungeonFromObject(d)
   placedProps = Array.isArray(d.placedProps) ? d.placedProps.map(normalizePlacedPropObj).filter(p => p && p.url) : placedProps
   placedTexts = Array.isArray(d.placedTexts) ? d.placedTexts.map(normalizeTextObj) : []
+  placedTextsVersion += 1
+  invalidateLiveLayer(textLayerCache)
+  invalidateTextMetricsCache(textMetricsCache)
   draft=null; draftRect=null; freeDraw=null; lineDraw=null; draftShape=null; draftArc=null; selectedShapeId=null; selectedPropId=null; selectedTextId=null; shapeDrag=null; propTransformDrag=null; textDrag=null; eraseStroke=null
   syncTextPanelVisibility()
   underMode = false
@@ -1098,11 +1107,8 @@ async function applyGoogleFontToSelectedText(rawFamily){
   if (googleFontFamilyInput) googleFontFamilyInput.value = family
   syncSelectedTextControls()
   if (textEditorState && textEditorState.id === t.id) positionTextEditorOverlayForText(t)
+  bumpTextVersion()
 }
-
-const propShadowRuntimeCache = new WeakMap()
-let propShadowScratch = null
-let propShadowScratchCtx = null
 
 function newTextId(){
   try {
@@ -1212,7 +1218,7 @@ function commitActiveTextEditor(){
   const raw = String(textCanvasEditor.value || '')
   t.text = raw.trim() || 'Label'
   syncSelectedTextControls()
-  markRenderDirty()
+  bumpTextVersion()
   closeTextEditorOverlay()
   return true
 }
@@ -1223,10 +1229,12 @@ function cancelActiveTextEditor(){
   if (t){
     if (st.isNew){
       placedTexts = placedTexts.filter(v => v && v.id !== st.id)
+      bumpTextVersion()
       selectedTextId = null
       if (st.undoPushed) undoStack.pop()
     } else {
       t.text = st.originalText
+      bumpTextVersion()
     }
     markRenderDirty()
   }
@@ -1245,15 +1253,7 @@ function textFontCss(t, cam){
   return `${px}px ${quoteCanvasFontFamily(t.fontFamily)} , system-ui`
 }
 function measureTextScreenBounds(t, cam, targetCtx=ctx){
-  const s = cam.worldToScreen({x:t.x, y:t.y})
-  targetCtx.save()
-  targetCtx.font = textFontCss(t, cam)
-  const m = targetCtx.measureText(t.text || '')
-  targetCtx.restore()
-  const fs = Math.max(8, (Number(t.fontSize)||20) * (cam?.zoom || 1))
-  const pad = 6
-  const w = Math.max(8, m.width || 0)
-  return { x:s.x-pad, y:s.y-fs-pad, w:w+pad*2, h:fs+pad*2 }
+  return getCachedTextScreenBounds(textMetricsCache, targetCtx, t, cam, textFontCss)
 }
 function pickTextAtScreen(screen, cam=camera){
   if (!isTextPreviewGloballyVisible()) return null
@@ -1269,27 +1269,105 @@ function createTextAtWorld(world){
   const p = snapSoft(world, subGrid(), dungeon.style.snapStrength)
   const t = normalizeTextObj({ x:p.x, y:p.y, text:'Label', fontFamily:'Minecraft Five', fontSize:20, color:'#1f2933' })
   placedTexts.push(t)
+  bumpTextVersion()
   selectedTextId = t.id
   selectedPropId = null
   selectedShapeId = null
   return t
 }
+function isScreenRectVisible(x, y, w, h, pad = 0){
+  return !((x + w) < -pad || x > (W + pad) || (y + h) < -pad || y > (H + pad))
+}
+
+function isWorldBoundsVisible(cam, minx, miny, maxx, maxy, padPx = 0){
+  if (!cam) return true
+  const tl = cam.worldToScreen({ x: minx, y: miny })
+  const br = cam.worldToScreen({ x: maxx, y: maxy })
+  const left = Math.min(tl.x, br.x)
+  const top = Math.min(tl.y, br.y)
+  const right = Math.max(tl.x, br.x)
+  const bottom = Math.max(tl.y, br.y)
+  return !((right < -padPx) || (left > W + padPx) || (bottom < -padPx) || (top > H + padPx))
+}
+
+function lineWorldBounds(line){
+  const pts = Array.isArray(line?.points) ? line.points : null
+  if (!pts || pts.length < 2) return null
+  let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity
+  for (const p of pts){
+    if (!p) continue
+    const x = Number(p.x)
+    const y = Number(p.y)
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+    if (x < minx) minx = x
+    if (y < miny) miny = y
+    if (x > maxx) maxx = x
+    if (y > maxy) maxy = y
+  }
+  if (!Number.isFinite(minx)) return null
+  const half = Math.max(1, Number(line?.width || currentLineWorldWidth()) * 0.5)
+  return { minx: minx - half, miny: miny - half, maxx: maxx + half, maxy: maxy + half }
+}
+
+function drawTextItem(targetCtx, cam, t, opts={}){
+  if (!t) return
+  const forExport = !!opts.forExport
+  const itemAllowed = forExport ? (t.showInExport !== false) : (t.showInPreview !== false)
+  if (forExport && !itemAllowed) return
+  const s = cam.worldToScreen({x:t.x,y:t.y})
+  const fontPx = Math.max(1, Number(t.fontSize || 20) * Math.max(0.01, Number(cam?.zoom || 1)))
+  const approxW = Math.max(fontPx, String(t.text || '').length * fontPx * 0.65)
+  const approxH = fontPx * 1.4
+  if (!forExport && !isScreenRectVisible(s.x - 4, s.y - approxH, approxW + 8, approxH + 8, 24)) return
+  targetCtx.save()
+  targetCtx.font = textFontCss(t, cam)
+  targetCtx.textBaseline = 'alphabetic'
+  targetCtx.fillStyle = String(t.color || '#1f2933')
+  if (!forExport && !itemAllowed) targetCtx.globalAlpha = 0.25
+  targetCtx.fillText(t.text || '', s.x, s.y)
+  targetCtx.restore()
+}
+
+function shouldBypassLiveTextCache(t){
+  if (!t) return false
+  if (textEditorState && textEditorState.id === t.id) return true
+  if (selectedTextId && t.id === selectedTextId) return true
+  return false
+}
+
 function drawTextsTo(targetCtx, cam, opts={}){
   const forExport = !!opts.forExport
   const globalAllowed = forExport ? (dungeon.style.showTextExport !== false) : (dungeon.style.showTextPreview !== false)
   if (!forExport && !globalAllowed) return
+  const liveCanvasCtx = targetCtx === ctx && !forExport
+  if (liveCanvasCtx){
+    const logicalW = Math.max(1, W|0)
+    const logicalH = Math.max(1, H|0)
+    const liveBypassId = selectedTextId || ''
+    const editingId = textEditorState?.id || ''
+    const layerKey = [
+      currentLiveLayerSignature(cam, logicalW, logicalH),
+      placedTextsVersion,
+      globalAllowed ? 1 : 0,
+      liveBypassId,
+      editingId
+    ].join('|')
+    prepareTextMetricsFrame(textMetricsCache, layerKey)
+    drawLiveLayer(targetCtx, textLayerCache, logicalW, logicalH, layerKey, (lctx) => {
+      for (const t of placedTexts){
+        if (!t || shouldBypassLiveTextCache(t)) continue
+        drawTextItem(lctx, cam, t, { forExport:false })
+      }
+    })
+    const liveText = getSelectedText()
+    if (liveText) drawTextItem(targetCtx, cam, liveText, { forExport:false })
+    return
+  }
+
   for (const t of placedTexts){
     if (!t) continue
-    const itemAllowed = forExport ? (t.showInExport !== false) : (t.showInPreview !== false)
-    if (forExport && (!globalAllowed || !itemAllowed)) continue
-    const s = cam.worldToScreen({x:t.x,y:t.y})
-    targetCtx.save()
-    targetCtx.font = textFontCss(t, cam)
-    targetCtx.textBaseline = 'alphabetic'
-    targetCtx.fillStyle = String(t.color || '#1f2933')
-    if (!forExport && !itemAllowed) targetCtx.globalAlpha = 0.25
-    targetCtx.fillText(t.text || '', s.x, s.y)
-    targetCtx.restore()
+    if (forExport && (!globalAllowed || t.showInExport === false)) continue
+    drawTextItem(targetCtx, cam, t, { forExport })
   }
 }
 function drawTextSelection(){
@@ -1305,20 +1383,46 @@ function drawTextSelection(){
   ctx.restore()
 }
 
-function getPropShadowScratch(width, height){
-  const w = Math.max(1, Math.ceil(width))
-  const h = Math.max(1, Math.ceil(height))
-  if (!propShadowScratch){
-    propShadowScratch = document.createElement('canvas')
-    propShadowScratchCtx = propShadowScratch.getContext('2d')
-  }
-  if (propShadowScratch.width !== w || propShadowScratch.height !== h){
-    propShadowScratch.width = w
-    propShadowScratch.height = h
-  }
-  return { canvas: propShadowScratch, ctx: propShadowScratchCtx }
-}
 
+
+function drawPropSelection(){
+  if (tool !== 'select' || !selectedPropId) return
+  const p = getPlacedPropById(selectedPropId)
+  if (!p) return
+  const c = camera.worldToScreen({ x: p.x, y: p.y })
+  const rs = getPlacedPropRenderSize(p)
+  const w = Math.max(1, rs.w * camera.zoom)
+  const h = Math.max(1, rs.h * camera.zoom)
+  const handleW = propLocalToWorld(p, propHandleLocal(p))
+  const hs = camera.worldToScreen(handleW)
+  const scaleHandleW = propLocalToWorld(p, propScaleHandleLocal(p))
+  const shs = camera.worldToScreen(scaleHandleW)
+  ctx.save()
+  ctx.translate(c.x, c.y)
+  if (p.rot) ctx.rotate(p.rot)
+  ctx.strokeStyle = 'rgba(80,120,255,0.95)'
+  ctx.lineWidth = 2
+  ctx.setLineDash([6,6])
+  ctx.strokeRect(-w/2, -h/2, w, h)
+  ctx.setLineDash([])
+  ctx.beginPath()
+  ctx.moveTo(0, -h/2)
+  ctx.lineTo(hs.x - c.x, hs.y - c.y)
+  ctx.strokeStyle = 'rgba(80,120,255,0.55)'
+  ctx.lineWidth = 1.5
+  ctx.stroke()
+  ctx.restore()
+  ctx.fillStyle = 'rgba(80,120,255,0.95)'
+  ctx.beginPath(); ctx.arc(hs.x, hs.y, 7, 0, Math.PI*2); ctx.fill()
+  ctx.strokeStyle = 'rgba(255,255,255,0.95)'
+  ctx.lineWidth = 2
+  ctx.beginPath(); ctx.arc(hs.x, hs.y, 7, 0, Math.PI*2); ctx.stroke()
+  ctx.fillStyle = 'rgba(80,120,255,0.95)'
+  ctx.fillRect(shs.x - 6, shs.y - 6, 12, 12)
+  ctx.strokeStyle = 'rgba(255,255,255,0.95)'
+  ctx.lineWidth = 2
+  ctx.strokeRect(shs.x - 6, shs.y - 6, 12, 12)
+}
 
 function syncPanelTabs(){
   const hasAssets = !!(tabAssetsBtn && panelPages.length)
@@ -1568,474 +1672,27 @@ function pastePropFromClipboard(opts = {}){
 }
 
 
-function getPropShadowCanvasLikeWalls(propInst, img, drawW, drawH, zoomOverride = null){
-  const shadow = dungeon.style?.shadow
-  if (!shadow?.enabled) return null
-  const alpha = Math.max(0, Math.min(1, Number(shadow.opacity ?? 0.34)))
-  if (alpha <= 0) return null
-  const activeZoom = Number.isFinite(Number(zoomOverride)) ? Number(zoomOverride) : camera.zoom
-  const propLenScale = 0.5 // prop shadows are half the wall-shadow length
-  const lenPx = Math.max(0, Number(shadow.length || 0) * propLenScale * activeZoom)
-  const globalDir = shadow.dir || { x: 0.707, y: 0.707 }
-  const localDir = rotate({ x: globalDir.x || 0, y: globalDir.y || 0 }, -(Number(propInst?.rot || 0) || 0))
-  const dx = Math.round((localDir.x || 0) * lenPx)
-  const dy = Math.round((localDir.y || 0) * lenPx)
-  if (dx === 0 && dy === 0) return null
-  const w = Math.max(1, Math.round(drawW))
-  const h = Math.max(1, Math.round(drawH))
-  // Extra pad and feathering make thin SVG line props cast a visible shadow.
-  const feather = Math.max(1, Math.round(Math.min(w, h) * 0.04))
-  const pad = Math.max(6, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) + feather + 4))
-  const flipX = propInst?.flipX === true
-  const flipY = propInst?.flipY === true
-  const key = [w,h,dx,dy,shadow.color||'#000000',alpha,feather, flipX?1:0, flipY?1:0].join('|')
-  const cached = propShadowRuntimeCache.get(propInst)
-  if (cached && cached.key === key && cached.canvas) return cached
-
-  const cw = w + pad * 2, ch = h + pad * 2
-
-  // Alpha mask for the prop image.
-  const baseAlphaC = document.createElement('canvas'); baseAlphaC.width = cw; baseAlphaC.height = ch
-  const bactx = baseAlphaC.getContext('2d')
-  bactx.clearRect(0,0,cw,ch)
-  bactx.imageSmoothingEnabled = false
-  bactx.save()
-  bactx.translate(pad + w/2, pad + h/2)
-  bactx.scale(flipX ? -1 : 1, flipY ? -1 : 1)
-  bactx.drawImage(img, -w/2, -h/2, w, h)
-  bactx.restore()
-
-  // Build a slightly expanded source mask for shadow casting while keeping a tighter
-  // body mask for the cutout. Using the same expanded mask for both can leave a pale
-  // seam between the prop and the shadow on anti-aliased assets.
-  const alphaC = document.createElement('canvas'); alphaC.width = cw; alphaC.height = ch
-  const actx = alphaC.getContext('2d')
-  actx.imageSmoothingEnabled = false
-  actx.drawImage(baseAlphaC, 0, 0)
-
-  // Slightly dilate the cast source so stroke-based SVG icons (doors/chests/etc.)
-  // still produce a visible shadow.
-  if (feather > 0){
-    const dilate = document.createElement('canvas'); dilate.width = cw; dilate.height = ch
-    const dctx = dilate.getContext('2d')
-    dctx.imageSmoothingEnabled = false
-    for (let ox = -feather; ox <= feather; ox++){
-      for (let oy = -feather; oy <= feather; oy++){
-        if ((ox*ox + oy*oy) > feather*feather) continue
-        dctx.drawImage(baseAlphaC, ox, oy)
-      }
-    }
-    actx.clearRect(0,0,cw,ch)
-    actx.drawImage(dilate, 0, 0)
-  }
-
-  // Sweep the prop alpha in the shadow direction to make a directional cast shadow, then subtract the prop itself.
-  const sweepC = document.createElement('canvas'); sweepC.width = cw; sweepC.height = ch
-  const sctx = sweepC.getContext('2d')
-  sctx.imageSmoothingEnabled = false
-  const steps = Math.max(8, Math.min(80, Math.round(Math.hypot(dx, dy))))
-  let lx = null, ly = null
-  for (let i = 1; i <= steps; i++){
-    const ox = Math.round((dx * i) / steps)
-    const oy = Math.round((dy * i) / steps)
-    if (ox === lx && oy === ly) continue
-    lx = ox; ly = oy
-    sctx.drawImage(alphaC, ox, oy)
-  }
-  sctx.globalCompositeOperation = 'destination-out'
-  sctx.drawImage(baseAlphaC, 0, 0)
-  sctx.globalCompositeOperation = 'source-over'
-
-  // Normalize the mask to binary alpha so overlapping sweep samples don't become darker.
-  try {
-    const maskImg = sctx.getImageData(0, 0, cw, ch)
-    const d = maskImg.data
-    for (let i = 0; i < d.length; i += 4){
-      d[i + 3] = d[i + 3] > 0 ? 255 : 0
-    }
-    sctx.putImageData(maskImg, 0, 0)
-  } catch {}
-
-  // Bridge the tiny anti-aliased halo/gap that can appear between a prop sprite
-  // and the start of its shadow. Keep the overlap modest, then carve back the
-  // light-facing side so the shadow does not wrap around the prop silhouette.
-  const bridgeX = dx === 0 ? 0 : -Math.sign(dx)
-  const bridgeY = dy === 0 ? 0 : -Math.sign(dy)
-  if (bridgeX !== 0 || bridgeY !== 0){
-    const bridgeSteps = 1
-    const bridgeC = document.createElement('canvas'); bridgeC.width = cw; bridgeC.height = ch
-    const bctx = bridgeC.getContext('2d')
-    bctx.imageSmoothingEnabled = false
-    for (let i = 0; i <= bridgeSteps; i++){
-      bctx.drawImage(sweepC, bridgeX * i, bridgeY * i)
-    }
-    sctx.clearRect(0, 0, cw, ch)
-    sctx.drawImage(bridgeC, 0, 0)
-
-    // Remove the faint halo that can survive on the light-facing / shoulder sides
-    // of the prop after bridging. We subtract a slightly expanded copy of the prop
-    // body, biased toward the light, so the shadow starts flush only on the cast side.
-    const blockerPad = Math.max(1, Math.min(3, feather + 1))
-    const blockerC = document.createElement('canvas'); blockerC.width = cw; blockerC.height = ch
-    const blctx = blockerC.getContext('2d')
-    blctx.imageSmoothingEnabled = false
-    for (let ox = -blockerPad; ox <= blockerPad; ox++){
-      for (let oy = -blockerPad; oy <= blockerPad; oy++){
-        if ((ox*ox + oy*oy) > blockerPad*blockerPad) continue
-        blctx.drawImage(baseAlphaC, ox, oy)
-      }
-    }
-    sctx.globalCompositeOperation = 'destination-out'
-    sctx.drawImage(blockerC, bridgeX * blockerPad, bridgeY * blockerPad)
-    sctx.globalCompositeOperation = 'source-over'
-  }
-
-  const outC = document.createElement('canvas'); outC.width = cw; outC.height = ch
-  const octx = outC.getContext('2d')
-  octx.fillStyle = shadow.color || '#000000'
-  octx.globalAlpha = alpha
-  octx.fillRect(0,0,cw,ch)
-  octx.globalAlpha = 1
-  octx.globalCompositeOperation = 'destination-in'
-  octx.drawImage(sweepC, 0, 0)
-  octx.globalCompositeOperation = 'source-over'
-
-  const result = { key, canvas: outC, pad }
-  propShadowRuntimeCache.set(propInst, result)
-  return result
-}
-
-function drawPropSelection(){
-  if (tool !== 'select' || !selectedPropId) return
-  const p = getPlacedPropById(selectedPropId)
-  if (!p) return
-  const c = camera.worldToScreen({ x: p.x, y: p.y })
-  const rs = getPlacedPropRenderSize(p)
-  const w = Math.max(1, rs.w * camera.zoom)
-  const h = Math.max(1, rs.h * camera.zoom)
-  const handleW = propLocalToWorld(p, propHandleLocal(p))
-  const hs = camera.worldToScreen(handleW)
-  const scaleHandleW = propLocalToWorld(p, propScaleHandleLocal(p))
-  const shs = camera.worldToScreen(scaleHandleW)
-  ctx.save()
-  ctx.translate(c.x, c.y)
-  if (p.rot) ctx.rotate(p.rot)
-  ctx.strokeStyle = 'rgba(80,120,255,0.95)'
-  ctx.lineWidth = 2
-  ctx.setLineDash([6,6])
-  ctx.strokeRect(-w/2, -h/2, w, h)
-  ctx.setLineDash([])
-  ctx.beginPath()
-  ctx.moveTo(0, -h/2)
-  ctx.lineTo(hs.x - c.x, hs.y - c.y)
-  ctx.strokeStyle = 'rgba(80,120,255,0.55)'
-  ctx.lineWidth = 1.5
-  ctx.stroke()
-  ctx.restore()
-  ctx.fillStyle = 'rgba(80,120,255,0.95)'
-  ctx.beginPath(); ctx.arc(hs.x, hs.y, 7, 0, Math.PI*2); ctx.fill()
-  ctx.strokeStyle = 'rgba(255,255,255,0.95)'
-  ctx.lineWidth = 2
-  ctx.beginPath(); ctx.arc(hs.x, hs.y, 7, 0, Math.PI*2); ctx.stroke()
-  ctx.fillStyle = 'rgba(80,120,255,0.95)'
-  ctx.fillRect(shs.x - 6, shs.y - 6, 12, 12)
-  ctx.strokeStyle = 'rgba(255,255,255,0.95)'
-  ctx.lineWidth = 2
-  ctx.strokeRect(shs.x - 6, shs.y - 6, 12, 12)
-}
-
-const __propLayerTmp = {}
-function getPropLayerTemp(key, w, h){
-  let c = __propLayerTmp[key]
-  if (!c) c = __propLayerTmp[key] = document.createElement('canvas')
-  if (c.width !== w || c.height !== h){ c.width = w; c.height = h }
-  return c
-}
-function drawCompiledLayerToScreen(targetCtx, layerCanvas, cache, cam = camera){
-  if (!targetCtx || !layerCanvas || !cache) return
-  const tl = cam.worldToScreen({ x: cache.bounds.minx, y: cache.bounds.miny })
-  const drawW = (layerCanvas.width / cache.ppu) * cam.zoom
-  const drawH = (layerCanvas.height / cache.ppu) * cam.zoom
-  targetCtx.imageSmoothingEnabled = true
-  targetCtx.drawImage(layerCanvas, tl.x, tl.y, drawW, drawH)
-}
-
-function drawPlacedPropsTo(targetCtx, targetCamera, targetW, targetH, cacheForWalls = compiledCache){
-  if (!Array.isArray(placedProps) || placedProps.length === 0) return
-
-  const shadowMasterEnabled = !!(dungeon.style?.shadow?.enabled)
-  const propShadowsGloballyEnabled = shadowMasterEnabled && (dungeon.style?.shadow?.allPropsEnabled !== false)
-  const shadowMaskC = propShadowsGloballyEnabled ? getPropLayerTemp('shadowMask', targetW, targetH) : null
-  const propOccC = propShadowsGloballyEnabled ? getPropLayerTemp('propOcc', targetW, targetH) : null
-  const wallOccC = propShadowsGloballyEnabled ? getPropLayerTemp('wallOcc', targetW, targetH) : null
-  const shadowTintC = propShadowsGloballyEnabled ? getPropLayerTemp('shadowTint', targetW, targetH) : null
-  const propOccExpandedC = propShadowsGloballyEnabled ? getPropLayerTemp('propOccExpanded', targetW, targetH) : null
-  const smctx = shadowMaskC ? shadowMaskC.getContext('2d', { willReadFrequently: true }) : null
-  const poctx = propOccC ? propOccC.getContext('2d') : null
-  const poectx = propOccExpandedC ? propOccExpandedC.getContext('2d') : null
-  const woctx = wallOccC ? wallOccC.getContext('2d', { willReadFrequently: true }) : null
-  const stctx = shadowTintC ? shadowTintC.getContext('2d') : null
-
-  if (smctx) {
-    smctx.clearRect(0,0,targetW,targetH)
-    smctx.globalCompositeOperation = 'source-over'
-    smctx.imageSmoothingEnabled = false
-  }
-  if (poctx) {
-    poctx.clearRect(0,0,targetW,targetH)
-    poctx.globalCompositeOperation = 'source-over'
-    poctx.imageSmoothingEnabled = false
-  }
-  if (poectx) {
-    poectx.clearRect(0,0,targetW,targetH)
-    poectx.globalCompositeOperation = 'source-over'
-    poectx.imageSmoothingEnabled = false
-  }
-  if (woctx) {
-    woctx.clearRect(0,0,targetW,targetH)
-    woctx.globalCompositeOperation = 'source-over'
-    woctx.imageSmoothingEnabled = true
-  }
-
-  // Pass 1: accumulate prop shadow masks (union target) and total prop occupancy.
-  if (propShadowsGloballyEnabled && smctx && poctx){
-    for (const a of placedProps){
-      if (!a || !a.url) continue
-      const propMeta = getPropById(a.propId)
-      const img = propImageCache.get(a.url) || (()=>{ const p = propMeta; return p ? getPropImage(p) : null })()
-      if (!img) continue
-      const c = targetCamera.worldToScreen({ x: a.x, y: a.y })
-      const rs = getPlacedPropRenderSize(a)
-      const w = Math.max(1, rs.w * targetCamera.zoom)
-      const h = Math.max(1, rs.h * targetCamera.zoom)
-
-      // Occupancy mask of prop bodies so no prop shadow can render over any prop sprite.
-      if (img.complete && img.naturalWidth > 0){
-        poctx.save()
-        poctx.translate(c.x, c.y)
-        if (a.rot) poctx.rotate(a.rot)
-        if (a.flipX === true || a.flipY === true) poctx.scale(a.flipX === true ? -1 : 1, a.flipY === true ? -1 : 1)
-        poctx.drawImage(img, -w/2, -h/2, w, h)
-        poctx.restore()
-      }
-
-      const shadowEnabled =
-        (a?.shadowDisabled === true) ? false :
-        (a?.shadowDisabled === false) ? true :
-        (propMeta?.castShadow !== false)
-      if (!shadowEnabled || !(img.complete && img.naturalWidth > 0)) continue
-      const shadowLayer = getPropShadowCanvasLikeWalls(a, img, w, h, targetCamera.zoom)
-      if (!shadowLayer?.canvas) continue
-      smctx.save()
-      smctx.translate(c.x, c.y)
-      if (a.rot) smctx.rotate(a.rot)
-      // Intentionally do not apply prop flip to the cast-shadow draw transform;
-      // flipping the prop should not reverse the world-space shadow direction.
-      smctx.drawImage(shadowLayer.canvas, -w/2 - shadowLayer.pad, -h/2 - shadowLayer.pad)
-      smctx.restore()
-    }
-
-    // Convert accumulated alpha to a binary union mask so overlaps don't get darker.
-    try {
-      const maskImg = smctx.getImageData(0, 0, targetW, targetH)
-      const d = maskImg.data
-      for (let i = 0; i < d.length; i += 4){
-        d[i] = 0; d[i+1] = 0; d[i+2] = 0
-        d[i+3] = d[i+3] > 0 ? 255 : 0
-      }
-      smctx.putImageData(maskImg, 0, 0)
-    } catch {}
-
-    // Never draw prop shadows under the semi-transparent fringe of prop bodies.
-    // Use two cutouts:
-    // 1) a tiny isotropic expansion to hide anti-aliased seams directly under the sprite edge
-    // 2) a light-side-biased carve so the shadow does not wrap around the silhouette on the lit side
-    const occOverlapPx = Math.max(1, Math.min(2, Math.round(targetCamera.zoom * 0.03)))
-    const lightDir = (() => {
-      const g = dungeon.style?.shadow?.dir || { x: 0.707, y: 0.707 }
-      const lx = -Number(g.x || 0)
-      const ly = -Number(g.y || 0)
-      const mag = Math.hypot(lx, ly) || 1
-      return { x: lx / mag, y: ly / mag }
-    })()
-    const occMaskForCutout = (() => {
-      if (!poectx || !propOccExpandedC) return propOccC
-      poectx.clearRect(0,0,targetW,targetH)
-
-      // Small symmetric overlap so the shadow tucks just under soft sprite edges.
-      if (occOverlapPx > 0){
-        for (let ox = -occOverlapPx; ox <= occOverlapPx; ox++){
-          for (let oy = -occOverlapPx; oy <= occOverlapPx; oy++){
-            if ((ox*ox + oy*oy) > occOverlapPx*occOverlapPx) continue
-            poectx.drawImage(propOccC, ox, oy)
-          }
-        }
-      } else {
-        poectx.drawImage(propOccC, 0, 0)
-      }
-
-      // Stronger carve on the light-facing side only, which removes pale/white streaks
-      // without opening a gap on the cast side where the shadow should start flush.
-      const lightCarvePx = Math.max(1, Math.min(4, Math.round(targetCamera.zoom * 0.06)))
-      const stepX = lightDir.x === 0 ? 0 : Math.sign(lightDir.x)
-      const stepY = lightDir.y === 0 ? 0 : Math.sign(lightDir.y)
-      for (let i = 1; i <= lightCarvePx; i++){
-        const ox = Math.round(lightDir.x * i)
-        const oy = Math.round(lightDir.y * i)
-        poectx.drawImage(propOccC, ox, oy)
-        // Fill in coarse pixel stairs for diagonal light directions.
-        if (stepX !== 0) poectx.drawImage(propOccC, ox + stepX, oy)
-        if (stepY !== 0) poectx.drawImage(propOccC, ox, oy + stepY)
-      }
-      return propOccExpandedC
-    })()
-    smctx.globalCompositeOperation = 'destination-out'
-    smctx.drawImage(occMaskForCutout, 0, 0)
-    smctx.globalCompositeOperation = 'source-over'
-
-    // Clip prop shadows to dungeon interior so they cannot leak outside walls.
-    if (cacheForWalls?.maskCanvas && cacheForWalls?.bounds && cacheForWalls?.ppu) {
-      try {
-        woctx && woctx.clearRect(0,0,targetW,targetH)
-        if (woctx){
-          drawCompiledLayerToScreen(woctx, cacheForWalls.maskCanvas, cacheForWalls, targetCamera)
-          smctx.globalCompositeOperation = 'destination-in'
-          smctx.drawImage(wallOccC, 0, 0)
-          smctx.globalCompositeOperation = 'source-over'
-        }
-      } catch {}
-    }
-
-    // Merge with wall shadow into a single flat-darkness result and bridge tiny gaps.
-    if (woctx && cacheForWalls?.shadowCanvas && cacheForWalls?.bounds && cacheForWalls?.ppu) {
-      woctx.clearRect(0,0,targetW,targetH)
-      drawCompiledLayerToScreen(woctx, cacheForWalls.shadowCanvas, cacheForWalls, targetCamera)
-      try {
-        const maskImg = smctx.getImageData(0, 0, targetW, targetH)
-        const wallImg = woctx.getImageData(0, 0, targetW, targetH)
-        const md = maskImg.data
-        const wd = wallImg.data
-        const npx = targetW * targetH
-        const shadowOpacity = Math.max(0.001, Math.min(1, Number(dungeon.style?.shadow?.opacity ?? 0.34)))
-        const wallOccThreshold = 4
-        const propOcc = new Uint8Array(npx)
-        const wallOcc = new Uint8Array(npx)
-        let k = 0
-        for (let i = 0; i < md.length; i += 4, k++) {
-          propOcc[k] = md[i+3] > 0 ? 1 : 0
-          wallOcc[k] = wd[i+3] >= wallOccThreshold ? 1 : 0
-        }
-        // Combined occupancy = wall OR prop, then close tiny gaps (radius 1, 8-neighbor).
-        let comb = new Uint8Array(npx)
-        for (let i = 0; i < npx; i++) comb[i] = (propOcc[i] | wallOcc[i])
-        const dil = new Uint8Array(npx)
-        for (let y = 0; y < targetH; y++) {
-          const y0 = Math.max(0, y - 1), y1 = Math.min(targetH - 1, y + 1)
-          for (let x = 0; x < targetW; x++) {
-            let on = 0
-            const x0 = Math.max(0, x - 1), x1 = Math.min(targetW - 1, x + 1)
-            for (let yy = y0; yy <= y1 && !on; yy++) {
-              let idx = yy * targetW + x0
-              for (let xx = x0; xx <= x1; xx++, idx++) { if (comb[idx]) { on = 1; break } }
-            }
-            dil[y * targetW + x] = on
-          }
-        }
-        const closed = new Uint8Array(npx)
-        for (let y = 0; y < targetH; y++) {
-          const y0 = Math.max(0, y - 1), y1 = Math.min(targetH - 1, y + 1)
-          for (let x = 0; x < targetW; x++) {
-            let on = 1
-            const x0 = Math.max(0, x - 1), x1 = Math.min(targetW - 1, x + 1)
-            for (let yy = y0; yy <= y1 && on; yy++) {
-              let idx = yy * targetW + x0
-              for (let xx = x0; xx <= x1; xx++, idx++) { if (!dil[idx]) { on = 0; break } }
-            }
-            closed[y * targetW + x] = on
-          }
-        }
-
-        // Emit only the delta needed over the already-drawn wall shadow, preserving constant darkness.
-        k = 0
-        for (let i = 0; i < md.length; i += 4, k++) {
-          const wallA = wd[i+3] / 255
-          const targetA = closed[k] ? shadowOpacity : 0
-          let addA = 0
-          if (targetA > wallA + 1e-4) {
-            const denom = Math.max(1e-4, 1 - wallA)
-            addA = Math.max(0, Math.min(1, (targetA - wallA) / denom))
-          }
-          md[i] = 0; md[i+1] = 0; md[i+2] = 0
-          md[i+3] = Math.round(addA * 255)
-        }
-        smctx.putImageData(maskImg, 0, 0)
-      } catch {}
-    } else if (smctx) {
-      // No wall shadow layer available: convert mask alpha into actual source-over alpha payload using global opacity.
-      try {
-        const maskImg = smctx.getImageData(0, 0, targetW, targetH)
-        const md = maskImg.data
-        const shadowOpacity = Math.max(0, Math.min(1, Number(dungeon.style?.shadow?.opacity ?? 0.34)))
-        for (let i = 0; i < md.length; i += 4) {
-          md[i] = 0; md[i+1] = 0; md[i+2] = 0
-          md[i+3] = Math.round((md[i+3] / 255) * shadowOpacity * 255)
-        }
-        smctx.putImageData(maskImg, 0, 0)
-      } catch {}
-    }
-
-    // Tint once from the delta/max-merged prop shadow mask.
-    if (stctx){
-      stctx.clearRect(0,0,targetW,targetH)
-      stctx.fillStyle = dungeon.style?.shadow?.color || '#000000'
-      stctx.globalAlpha = 1
-      stctx.fillRect(0,0,targetW,targetH)
-      stctx.globalCompositeOperation = 'destination-in'
-      stctx.drawImage(shadowMaskC, 0, 0)
-      stctx.globalCompositeOperation = 'source-over'
-      targetCtx.drawImage(shadowTintC, 0, 0)
-    }
-  }
-
-  // Pass 2: draw prop sprites on top.
-  targetCtx.save()
-  for (const a of placedProps){
-    if (!a || !a.url) continue
-    const propMeta = getPropById(a.propId)
-    const img = propImageCache.get(a.url) || (()=>{ const p = propMeta; return p ? getPropImage(p) : null })()
-    if (!img) continue
-    const c = targetCamera.worldToScreen({ x: a.x, y: a.y })
-    const rs = getPlacedPropRenderSize(a)
-    const w = Math.max(1, rs.w * targetCamera.zoom)
-    const h = Math.max(1, rs.h * targetCamera.zoom)
-
-    targetCtx.save()
-    targetCtx.translate(c.x, c.y)
-    if (a.rot) targetCtx.rotate(a.rot)
-    if (a.flipX === true || a.flipY === true) targetCtx.scale(a.flipX === true ? -1 : 1, a.flipY === true ? -1 : 1)
-
-    targetCtx.globalAlpha = 1
-    if (img.complete && img.naturalWidth > 0){
-      targetCtx.drawImage(img, -w/2, -h/2, w, h)
-    } else {
-      targetCtx.fillStyle = "rgba(17,24,39,0.16)"
-      targetCtx.strokeStyle = "rgba(17,24,39,0.28)"
-      targetCtx.lineWidth = 1
-      targetCtx.fillRect(-w/2, -h/2, w, h)
-      targetCtx.strokeRect(-w/2, -h/2, w, h)
-      targetCtx.beginPath()
-      targetCtx.moveTo(-w/2, -h/2); targetCtx.lineTo(w/2, h/2)
-      targetCtx.moveTo(w/2, -h/2); targetCtx.lineTo(-w/2, h/2)
-      targetCtx.stroke()
-    }
-    targetCtx.restore()
-  }
-  targetCtx.restore()
-}
-
 function drawPlacedProps(){
-  drawPlacedPropsTo(ctx, camera, W, H, compiledCache)
+  drawPlacedPropsTo({
+    targetCtx: ctx,
+    targetCamera: camera,
+    targetW: W,
+    targetH: H,
+    cacheForWalls: compiledCache,
+    cacheSignature: compiledSig,
+    placedProps,
+    dungeonStyle: dungeon.style,
+    runtime: propRenderRuntime,
+    getPlacedPropRenderSize,
+    getPropById,
+    getPropImage,
+    propImageCache,
+    selectedPropId,
+    useStaticCache: !activeInteractionInProgress(),
+    cameraSignature: currentCameraSignature()
+  })
 }
+
 
 
 let builtInPropsCatalog = []
@@ -2854,6 +2511,9 @@ function applyLoadedMapObject(obj){
   rebuildImportedPropsFromEmbeddedAssets(embeddedAssets)
   placedProps = hydratePlacedPropsWithEmbeddedAssets(Array.isArray(d.placedProps) ? d.placedProps : [], embeddedAssets)
   placedTexts = Array.isArray(d.placedTexts) ? d.placedTexts.map(normalizeTextObj) : []
+  placedTextsVersion += 1
+  invalidateLiveLayer(textLayerCache)
+  invalidateTextMetricsCache(textMetricsCache)
 
   
   if (obj.camera && typeof obj.camera === "object") {
@@ -3024,6 +2684,9 @@ function clearMapContents(){
   dungeon.shapes = [];
   placedProps = [];
   placedTexts = [];
+  placedTextsVersion += 1;
+  invalidateLiveLayer(textLayerCache);
+  invalidateTextMetricsCache(textMetricsCache);
 
   selectedPropId = null;
   selectedShapeId = null;
@@ -3113,7 +2776,24 @@ function renderSceneToCanvasForBounds(targetCanvas, worldBounds){
   drawCompiledExteriorGrid(tctx, exportCam, cache, dungeon, tw, th, exportGridLineWidthScale)
   drawCompiledBase(tctx, exportCam, cache, dungeon, tw, th, exportGridLineWidthScale)
   drawLinesTo(tctx, exportCam)
-  drawPlacedPropsTo(tctx, exportCam, tw, th, cache)
+  drawPlacedPropsTo({
+    targetCtx: tctx,
+    targetCamera: exportCam,
+    targetW: tw,
+    targetH: th,
+    cacheForWalls: cache,
+    cacheSignature: compiledSig,
+    placedProps,
+    dungeonStyle: dungeon.style,
+    runtime: propRenderRuntime,
+    getPlacedPropRenderSize,
+    getPropById,
+    getPropImage,
+    propImageCache,
+    selectedPropId: null,
+    useStaticCache: false,
+    cameraSignature: currentCameraSignature(exportCam, tw, th)
+  })
   drawTextsTo(tctx, exportCam, { forExport:true })
   return { ctx: tctx, cam: exportCam }
 }
@@ -3335,7 +3015,6 @@ function compileSignature(){
   return JSON.stringify({
     interiorVersion: dungeon.__versions.interior,
     waterVersion: dungeon.__versions.water,
-    lineVersion: dungeon.__versions.lines,
     style: {
       wallColor: dungeon.style.wallColor,
       wallWidth: dungeon.style.wallWidth,
@@ -3345,16 +3024,16 @@ function compileSignature(){
       floorColor: dungeon.style.floorColor,
       gridLineWidth: dungeon.style.gridLineWidth,
       gridOpacity: dungeon.style.gridOpacity,
-    },
-    propsVersion: Array.isArray(placedProps) ? placedProps.map(p => [p?.id,p?.x,p?.y,p?.rot,p?.scale,p?.flipX,p?.flipY,p?.shadowDisabled].join(',')).join(';') : ''
+    }
   })
 }
 
 function ensureCompiled(){
   const sig = compileSignature()
   if (!compiledCache || sig !== compiledSig){
+    const previousCache = compiledCache
     compiledSig = sig
-    compiledCache = compileWorldCache(dungeon, placedProps, getPropById)
+    compiledCache = compileWorldCache(dungeon, previousCache)
   }
   return compiledCache
 }
@@ -4243,25 +3922,53 @@ function drawLineStrokePath(context, cam, points){
   })
   return true
 }
+function getSortedLineOps(){
+  const version = Number(dungeon.__versions?.lines || 0)
+  if (version !== lastSortedLineVersion){
+    sortedLineOps = Array.isArray(dungeon.lines) ? dungeon.lines.slice().sort((a,b)=> Number(a?.seq || 0) - Number(b?.seq || 0)) : []
+    lastSortedLineVersion = version
+  }
+  return sortedLineOps
+}
 function drawLinesTo(targetCtx, cam){
   if (!Array.isArray(dungeon.lines) || !dungeon.lines.length) return
   const liveCanvasCtx = targetCtx === ctx
   const logicalW = liveCanvasCtx ? Math.max(1, W|0) : Math.max(1, targetCtx.canvas.width|0)
   const logicalH = liveCanvasCtx ? Math.max(1, H|0) : Math.max(1, targetCtx.canvas.height|0)
-  const sizeKey = `${logicalW}x${logicalH}`
-  if (!lineLayerCanvas || sizeKey !== lastLineLayerSizeKey){
-    lineLayerCanvas = document.createElement("canvas")
-    lineLayerCanvas.width = logicalW
-    lineLayerCanvas.height = logicalH
-    lineLayerCtx = lineLayerCanvas.getContext("2d", { alpha:true })
-    lastLineLayerSizeKey = sizeKey
+  const ops = getSortedLineOps()
+  if (liveCanvasCtx){
+    const layerKey = [
+      currentLiveLayerSignature(cam, logicalW, logicalH),
+      Number(dungeon.__versions?.lines || 0),
+      String(dungeon.style?.lines?.color || dungeon.style?.water?.rippleColor || "#1f2933"),
+      Number(currentLineDashWorld()).toFixed(4),
+      Number(currentLineBaseWorldWidth()).toFixed(4)
+    ].join('|')
+    drawLiveLayer(targetCtx, lineLayerCache, logicalW, logicalH, layerKey, (lctx) => {
+      lctx.lineCap = "round"
+      lctx.lineJoin = "round"
+      lctx.strokeStyle = dungeon.style?.lines?.color || dungeon.style?.water?.rippleColor || "#1f2933"
+      for (const line of ops){
+        if (!Array.isArray(line?.points) || line.points.length < 2) continue
+        const bounds = lineWorldBounds(line)
+        if (bounds && !isWorldBoundsVisible(cam, bounds.minx, bounds.miny, bounds.maxx, bounds.maxy, 48)) continue
+        lctx.save()
+        lctx.globalCompositeOperation = (line.mode === "subtract") ? "destination-out" : "source-over"
+        lctx.setLineDash(line.dashed ? [Math.max(2, currentLineDashWorld() * cam.zoom), Math.max(2, currentLineDashWorld() * cam.zoom)] : [])
+        lctx.lineWidth = Math.max(1, Number(line.width || currentLineWorldWidth()) * cam.zoom)
+        drawLineStrokePath(lctx, cam, line.points)
+        lctx.stroke()
+        lctx.restore()
+      }
+    })
+    return
   }
-  const lctx = lineLayerCtx
+
+  const lctx = ensureLiveLayer(lineLayerCache, logicalW, logicalH)
   lctx.clearRect(0,0,logicalW,logicalH)
   lctx.lineCap = "round"
   lctx.lineJoin = "round"
   lctx.strokeStyle = dungeon.style?.lines?.color || dungeon.style?.water?.rippleColor || "#1f2933"
-  const ops = dungeon.lines.slice().sort((a,b)=> Number(a?.seq || 0) - Number(b?.seq || 0))
   for (const line of ops){
     if (!Array.isArray(line?.points) || line.points.length < 2) continue
     lctx.save()
@@ -4272,8 +3979,7 @@ function drawLinesTo(targetCtx, cam){
     lctx.stroke()
     lctx.restore()
   }
-  if (liveCanvasCtx) targetCtx.drawImage(lineLayerCanvas, 0, 0, logicalW, logicalH)
-  else targetCtx.drawImage(lineLayerCanvas, 0, 0)
+  targetCtx.drawImage(lineLayerCache.canvas, 0, 0)
 }
 function commitDraftPath(points, extra = {}){
   if (!Array.isArray(points) || points.length < 2) return false
@@ -4744,6 +4450,7 @@ window.addEventListener("keydown", (e)=>{
       e.preventDefault()
       pushUndo()
       placedTexts.splice(idx, 1)
+      bumpTextVersion()
       selectedTextId = null
       syncTextPanelVisibility()
       markRenderDirty()
@@ -4758,6 +4465,7 @@ window.addEventListener("keydown", (e)=>{
       dungeon.shapes.splice(idx, 1)
       selectedShapeId = null
       shapeDrag = null
+      bumpInteriorVersion()
       return
     }
   }
@@ -5294,7 +5002,9 @@ function resize(){
   ctx.setTransform(dpr,0,0,dpr,0,0)
   W = window.innerWidth; H = window.innerHeight
   maskCanvas.width = W; maskCanvas.height = H
-  lastLineLayerSizeKey = ""
+  resetLiveLayerSize(lineLayerCache)
+  resetLiveLayerSize(textLayerCache)
+  invalidateTextMetricsCache(textMetricsCache)
   lastTextOverlaySig = ""
   markRenderDirty()
 }

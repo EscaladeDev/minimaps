@@ -508,7 +508,52 @@ function getPlacedPropRenderSizeStatic(prop, gridSize = 32){
   const scale = Math.max(0.05, Number(prop?.scale || 1))
   return { w: baseW * scale, h: baseH * scale }
 }
-export function compileWorldCache(dungeon, placedProps = [], getPropMeta = () => null) {
+function styleSubsetSignature(dungeon){
+  return JSON.stringify({
+    wallColor: dungeon?.style?.wallColor,
+    wallWidth: dungeon?.style?.wallWidth,
+    shadow: dungeon?.style?.shadow,
+    hatch: dungeon?.style?.hatch,
+    water: dungeon?.style?.water,
+    floorColor: dungeon?.style?.floorColor,
+    gridLineWidth: dungeon?.style?.gridLineWidth,
+    gridOpacity: dungeon?.style?.gridOpacity,
+  })
+}
+
+function structureStyleSignature(dungeon){
+  return JSON.stringify({
+    wallColor: dungeon?.style?.wallColor,
+    wallWidth: dungeon?.style?.wallWidth,
+    shadow: dungeon?.style?.shadow,
+    hatch: dungeon?.style?.hatch,
+  })
+}
+
+function baseAppearanceSignature(dungeon){
+  return JSON.stringify({
+    floorColor: dungeon?.style?.floorColor,
+    gridLineWidth: dungeon?.style?.gridLineWidth,
+    gridOpacity: dungeon?.style?.gridOpacity,
+    water: dungeon?.style?.water,
+  })
+}
+
+function computeCompileMeta(dungeon, content, bounds, ppu, w, h){
+  const versions = dungeon?.__versions || {}
+  return {
+    interiorVersion: Number(versions.interior || 0),
+    waterVersion: Number(versions.water || 0),
+    styleSignature: styleSubsetSignature(dungeon),
+    structureStyleSignature: structureStyleSignature(dungeon),
+    baseAppearanceSignature: baseAppearanceSignature(dungeon),
+    contentKey: content ? [content.minx, content.miny, content.maxx, content.maxy].join('|') : '',
+    boundsKey: [bounds.minx, bounds.miny, bounds.maxx, bounds.maxy].join('|'),
+    sizeKey: [w, h, Number(ppu).toFixed(5)].join('|')
+  }
+}
+
+export function compileWorldCache(dungeon, previousCache = null) {
   const content = worldBoundsFromDungeon(dungeon)
   if (!content) return null
 
@@ -541,27 +586,73 @@ export function compileWorldCache(dungeon, placedProps = [], getPropMeta = () =>
   const w = Math.max(1, Math.ceil(worldW * ppu))
   const h = Math.max(1, Math.ceil(worldH * ppu))
 
-  const maskCanvas = document.createElement("canvas")
-  maskCanvas.width = w; maskCanvas.height = h
-  const maskCtx = maskCanvas.getContext("2d", { willReadFrequently: true })
-  drawWorldMask(maskCtx, dungeon, bounds, ppu)
+  const nextMeta = computeCompileMeta(dungeon, content, bounds, ppu, w, h)
+  const prevMeta = previousCache && previousCache.__meta ? previousCache.__meta : null
+  const canReuseRasterBase = !!(previousCache && prevMeta && prevMeta.boundsKey === nextMeta.boundsKey && prevMeta.sizeKey === nextMeta.sizeKey)
+  const canReuseInterior = !!(canReuseRasterBase && prevMeta.interiorVersion === nextMeta.interiorVersion)
+  const canReuseWater = !!(canReuseRasterBase && prevMeta.waterVersion === nextMeta.waterVersion)
+  const canReuseWholeStyle = !!(canReuseInterior && canReuseWater && prevMeta.styleSignature === nextMeta.styleSignature)
+  if (canReuseWholeStyle) {
+    return {
+      ...previousCache,
+      bounds,
+      contentBounds: content,
+      ppu,
+      __meta: nextMeta
+    }
+  }
 
-  const img = maskCtx.getImageData(0,0,w,h)
-  const step = Math.max(1, Math.round(1.5)) // stable contour res
-  const contoursPx = contoursFromAlpha(img, w, h, step, 1)
-  const contoursWorld = contoursPxToWorld(contoursPx, bounds, ppu)
+  let maskCanvas = null
+  let contoursPx = null
+  let contoursWorld = null
+  if (canReuseInterior) {
+    maskCanvas = previousCache.maskCanvas
+    contoursPx = previousCache.contoursPx
+    contoursWorld = previousCache.contoursWorld
+  } else {
+    maskCanvas = document.createElement("canvas")
+    maskCanvas.width = w; maskCanvas.height = h
+    const maskCtx = maskCanvas.getContext("2d", { willReadFrequently: true })
+    drawWorldMask(maskCtx, dungeon, bounds, ppu)
 
-  const rawWaterMaskCanvas = document.createElement("canvas")
-  rawWaterMaskCanvas.width = w; rawWaterMaskCanvas.height = h
-  const rawWaterMaskCtx = rawWaterMaskCanvas.getContext("2d", { willReadFrequently: true })
-  drawWaterMask(rawWaterMaskCtx, dungeon, bounds, ppu)
-  const waterDecor = getWaterDecorCache(rawWaterMaskCanvas, maskCanvas, dungeon, bounds, ppu)
-  const waterFillCanvas = waterDecor.waterFillCanvas
-  const waterEdgeCanvas = waterDecor.waterEdgeCanvas
+    const img = maskCtx.getImageData(0,0,w,h)
+    const step = Math.max(1, Math.round(1.5))
+    contoursPx = contoursFromAlpha(img, w, h, step, 1)
+    contoursWorld = contoursPxToWorld(contoursPx, bounds, ppu)
+  }
 
-  const shadowCanvas = buildShadowWorld(maskCanvas, dungeon, ppu)
-  const hatchCanvas = buildHatchWorld(contoursPx, maskCanvas, dungeon, ppu)
-  const wallCanvas = buildWallsWorld(contoursPx, maskCanvas, dungeon, ppu)
+  let rawWaterMaskCanvas = null
+  let waterFillCanvas = null
+  let waterEdgeCanvas = null
+  if (canReuseWater) {
+    rawWaterMaskCanvas = previousCache.rawWaterMaskCanvas
+    waterFillCanvas = previousCache.waterFillCanvas
+    waterEdgeCanvas = previousCache.waterEdgeCanvas
+  } else {
+    rawWaterMaskCanvas = document.createElement("canvas")
+    rawWaterMaskCanvas.width = w; rawWaterMaskCanvas.height = h
+    const rawWaterMaskCtx = rawWaterMaskCanvas.getContext("2d", { willReadFrequently: true })
+    drawWaterMask(rawWaterMaskCtx, dungeon, bounds, ppu)
+    const waterDecor = getWaterDecorCache(rawWaterMaskCanvas, maskCanvas, dungeon, bounds, ppu)
+    waterFillCanvas = waterDecor.waterFillCanvas
+    waterEdgeCanvas = waterDecor.waterEdgeCanvas
+  }
+
+  const canReuseStructureLayers = !!(canReuseInterior && prevMeta && prevMeta.structureStyleSignature === nextMeta.structureStyleSignature)
+  const shadowCanvas = canReuseStructureLayers ? previousCache.shadowCanvas : buildShadowWorld(maskCanvas, dungeon, ppu)
+  const hatchCanvas = canReuseStructureLayers ? previousCache.hatchCanvas : buildHatchWorld(contoursPx, maskCanvas, dungeon, ppu)
+  const wallCanvas = canReuseStructureLayers ? previousCache.wallCanvas : buildWallsWorld(contoursPx, maskCanvas, dungeon, ppu)
+
+  const baseWorldCanvas = buildBaseWorldCanvas({
+    bounds,
+    ppu,
+    maskCanvas,
+    waterFillCanvas,
+    waterEdgeCanvas,
+    shadowCanvas,
+    hatchCanvas,
+    wallCanvas
+  }, dungeon, 1)
 
   return {
     bounds,
@@ -574,22 +665,148 @@ export function compileWorldCache(dungeon, placedProps = [], getPropMeta = () =>
     shadowCanvas,
     hatchCanvas,
     wallCanvas,
+    baseWorldCanvas,
     contoursPx,
-    contoursWorld
+    contoursWorld,
+    __meta: nextMeta
   }
 }
 
 function drawWorldLayer(ctx, camera, layerCanvas, bounds, ppu) {
-  if (!layerCanvas) return
-  const tl = camera.worldToScreen({ x: bounds.minx, y: bounds.miny })
-  const drawW = (layerCanvas.width / ppu) * camera.zoom
-  const drawH = (layerCanvas.height / ppu) * camera.zoom
+  if (!layerCanvas || !camera || !bounds || !ppu) return
+
+  const screenW = Math.max(1, Number(ctx?.canvas?.width || 0))
+  const screenH = Math.max(1, Number(ctx?.canvas?.height || 0))
+  const topLeftWorld = camera.screenToWorld ? camera.screenToWorld({ x: 0, y: 0 }) : { x: -Number(camera.x || 0), y: -Number(camera.y || 0) }
+  const bottomRightWorld = camera.screenToWorld ? camera.screenToWorld({ x: screenW, y: screenH }) : {
+    x: topLeftWorld.x + screenW / Math.max(0.0001, Number(camera.zoom || 1)),
+    y: topLeftWorld.y + screenH / Math.max(0.0001, Number(camera.zoom || 1))
+  }
+  const worldLeft = Math.min(topLeftWorld.x, bottomRightWorld.x)
+  const worldTop = Math.min(topLeftWorld.y, bottomRightWorld.y)
+  const worldRight = Math.max(topLeftWorld.x, bottomRightWorld.x)
+  const worldBottom = Math.max(topLeftWorld.y, bottomRightWorld.y)
+
+  const visLeft = Math.max(bounds.minx, worldLeft)
+  const visTop = Math.max(bounds.miny, worldTop)
+  const visRight = Math.min(bounds.maxx, worldRight)
+  const visBottom = Math.min(bounds.maxy, worldBottom)
+  if (!(visRight > visLeft && visBottom > visTop)) return
+
+  const sx = Math.max(0, Math.floor((visLeft - bounds.minx) * ppu))
+  const sy = Math.max(0, Math.floor((visTop - bounds.miny) * ppu))
+  const sRight = Math.min(layerCanvas.width, Math.ceil((visRight - bounds.minx) * ppu))
+  const sBottom = Math.min(layerCanvas.height, Math.ceil((visBottom - bounds.miny) * ppu))
+  const sw = Math.max(1, sRight - sx)
+  const sh = Math.max(1, sBottom - sy)
+
+  const srcLeftWorld = bounds.minx + (sx / ppu)
+  const srcTopWorld = bounds.miny + (sy / ppu)
+  const srcRightWorld = bounds.minx + (sRight / ppu)
+  const srcBottomWorld = bounds.miny + (sBottom / ppu)
+
+  const dx = (srcLeftWorld - worldLeft) * camera.zoom
+  const dy = (srcTopWorld - worldTop) * camera.zoom
+  const dw = (srcRightWorld - srcLeftWorld) * camera.zoom
+  const dh = (srcBottomWorld - srcTopWorld) * camera.zoom
+
   ctx.imageSmoothingEnabled = true
-  ctx.drawImage(layerCanvas, tl.x, tl.y, drawW, drawH)
+  ctx.drawImage(layerCanvas, sx, sy, sw, sh, dx, dy, dw, dh)
 }
 
 function drawTransformedMaskTo(ctx, camera, cache) {
   drawWorldLayer(ctx, camera, cache.maskCanvas, cache.bounds, cache.ppu)
+}
+
+function drawWorldGrid(ctx, bounds, ppu, gridSize, lineWidth = 1, opacity = 0.06, lineWidthScale = 1) {
+  if (!ctx || !gridSize || gridSize <= 0) return
+  const opacityNum = Number(opacity)
+  const safeOpacity = Math.max(0, Math.min(1, Number.isFinite(opacityNum) ? opacityNum : 0.06))
+  const lineWidthNum = Number(lineWidth)
+  const lineWidthScaleNum = Number(lineWidthScale)
+  const safeLineWidthWorld = Math.max(
+    0.5 / Math.max(0.01, ppu),
+    (Number.isFinite(lineWidthNum) ? lineWidthNum : 1) * Math.max(0.1, Number.isFinite(lineWidthScaleNum) ? lineWidthScaleNum : 1)
+  )
+  if (safeOpacity <= 0) return
+
+  const startX = Math.floor(bounds.minx / gridSize) * gridSize
+  const endX = Math.ceil(bounds.maxx / gridSize) * gridSize
+  const startY = Math.floor(bounds.miny / gridSize) * gridSize
+  const endY = Math.ceil(bounds.maxy / gridSize) * gridSize
+
+  ctx.save()
+  ctx.globalAlpha = safeOpacity
+  ctx.strokeStyle = "rgba(0,0,0,1)"
+  ctx.lineWidth = safeLineWidthWorld * ppu
+  ctx.lineCap = "butt"
+  ctx.lineJoin = "miter"
+  ctx.beginPath()
+  for (let x = startX; x <= endX; x += gridSize) {
+    const px = (x - bounds.minx) * ppu
+    ctx.moveTo(px, 0)
+    ctx.lineTo(px, (bounds.maxy - bounds.miny) * ppu)
+  }
+  for (let y = startY; y <= endY; y += gridSize) {
+    const py = (y - bounds.miny) * ppu
+    ctx.moveTo(0, py)
+    ctx.lineTo((bounds.maxx - bounds.minx) * ppu, py)
+  }
+  ctx.stroke()
+  ctx.restore()
+}
+
+function buildBaseWorldCanvas(cache, dungeon, lineWidthScale = 1) {
+  if (!cache?.maskCanvas) return null
+  const baseCanvas = document.createElement("canvas")
+  baseCanvas.width = cache.maskCanvas.width
+  baseCanvas.height = cache.maskCanvas.height
+  const bctx = baseCanvas.getContext("2d")
+  const w = baseCanvas.width
+  const h = baseCanvas.height
+
+  bctx.clearRect(0, 0, w, h)
+  bctx.globalAlpha = 1
+  bctx.filter = "none"
+  bctx.globalCompositeOperation = "source-over"
+
+  // Interior fill from mask
+  bctx.drawImage(cache.maskCanvas, 0, 0)
+  bctx.globalCompositeOperation = "source-in"
+  bctx.fillStyle = dungeon.style.floorColor || dungeon.style.paper || "#ffffff"
+  bctx.fillRect(0, 0, w, h)
+  bctx.globalCompositeOperation = "source-over"
+
+  // Interior grid baked in world space for live view.
+  bctx.save()
+  bctx.globalCompositeOperation = "source-atop"
+  drawWorldGrid(
+    bctx,
+    cache.bounds,
+    cache.ppu,
+    dungeon.gridSize,
+    dungeon.style?.gridLineWidth ?? 1,
+    dungeon.style?.gridOpacity ?? 0.06,
+    lineWidthScale
+  )
+  bctx.restore()
+
+  if (cache.shadowCanvas && dungeon.style.shadow.enabled) {
+    bctx.drawImage(cache.shadowCanvas, 0, 0)
+  }
+  if (cache.waterFillCanvas && dungeon.style?.water?.enabled !== false) {
+    bctx.drawImage(cache.waterFillCanvas, 0, 0)
+  }
+  if (cache.waterEdgeCanvas && ((dungeon.style?.water?.outlineEnabled !== false) || (dungeon.style?.water?.ripplesEnabled !== false))) {
+    bctx.drawImage(cache.waterEdgeCanvas, 0, 0)
+  }
+  if (cache.hatchCanvas && dungeon.style.hatch.enabled) {
+    bctx.drawImage(cache.hatchCanvas, 0, 0)
+  }
+  if (cache.wallCanvas) {
+    bctx.drawImage(cache.wallCanvas, 0, 0)
+  }
+  return baseCanvas
 }
 
 export function punchOutCompiledInterior(ctx, camera, cache) {
@@ -637,10 +854,15 @@ function buildScreenGridCanvas(camera, dungeon, w, h, lineWidthScale = 1) {
 
 export function drawCompiledExteriorGrid(ctx, camera, cache, dungeon, w, h, lineWidthScale = 1) {
   const gridC = buildScreenGridCanvas(camera, dungeon, w, h, lineWidthScale)
-  if (!cache) {
+
+  // Live view fast path: the flattened base layer is drawn after the grid and
+  // already fully covers the interior, so we can skip the extra outside-mask
+  // composite pass entirely.
+  if (!cache || (lineWidthScale === 1 && cache.baseWorldCanvas)) {
     ctx.drawImage(gridC, 0, 0)
     return
   }
+
   const outC = getTemp(__tmp, "grid_outside", w, h)
   const octx = outC.getContext("2d")
   octx.clearRect(0, 0, w, h)
@@ -668,26 +890,28 @@ export function drawCompiledInteriorGridOverlay(ctx, camera, cache, dungeon, w, 
 export function drawCompiledBase(ctx, camera, cache, dungeon, w, h, lineWidthScale = 1) {
   if (!cache) return
 
-  // Fill dungeon interior (tint via source-in to avoid any mask-color interactions)
+  // Live view fast path: draw one flattened world-space base layer.
+  if (lineWidthScale === 1 && cache.baseWorldCanvas) {
+    drawWorldLayer(ctx, camera, cache.baseWorldCanvas, cache.bounds, cache.ppu)
+    return
+  }
+
+  // Fallback path keeps export/custom line-width output exact.
   const fillC = getTemp(__tmp, "fill", w, h)
   const fctx = fillC.getContext("2d")
   fctx.clearRect(0,0,w,h)
   fctx.globalAlpha = 1
   fctx.filter = "none"
   fctx.globalCompositeOperation = "source-over"
-  // Step 1: draw transformed interior mask (alpha carrier)
   drawTransformedMaskTo(fctx, camera, cache)
-  // Step 2: tint mask with chosen floor color
   fctx.globalCompositeOperation = "source-in"
   fctx.fillStyle = dungeon.style.floorColor || dungeon.style.paper || "#ffffff"
   fctx.fillRect(0,0,w,h)
   fctx.globalCompositeOperation = "source-over"
   ctx.drawImage(fillC, 0, 0)
 
-  // Interior grid clipped to fill
   drawCompiledInteriorGridOverlay(ctx, camera, cache, dungeon, w, h, lineWidthScale)
 
-  // Interior shadow (stable in world space, clipped to interior)
   if (cache.shadowCanvas && dungeon.style.shadow.enabled) {
     ctx.save()
     drawWorldLayer(ctx, camera, cache.shadowCanvas, cache.bounds, cache.ppu)
@@ -701,12 +925,10 @@ export function drawCompiledBase(ctx, camera, cache, dungeon, w, h, lineWidthSca
     drawWorldLayer(ctx, camera, cache.waterEdgeCanvas, cache.bounds, cache.ppu)
   }
 
-  // Outside hatch
   if (cache.hatchCanvas && dungeon.style.hatch.enabled) {
     drawWorldLayer(ctx, camera, cache.hatchCanvas, cache.bounds, cache.ppu)
   }
 
-  // Walls outside
   drawWorldLayer(ctx, camera, cache.wallCanvas, cache.bounds, cache.ppu)
 }
 

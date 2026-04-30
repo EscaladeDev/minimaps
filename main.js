@@ -504,7 +504,7 @@ function ensureGlobalPropShadowToggleUi(){
 const PATCH_NOTES = [
     {
     version: "v0.17",
-    date: "March 8, 2026",
+    date: "April 30, 2026",
     groups: [
       { title: "Changed", items: [
         "Compartmentalized multiple system functions.",
